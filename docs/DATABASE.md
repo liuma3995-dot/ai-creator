@@ -285,13 +285,66 @@ CREATE TABLE `prompt_templates` (
 
 ## 外键约束
 
+通过 SQLAlchemy 的 `ForeignKey(..., ondelete="...")` 在模型层声明，DB 层强制执行。共 **25 个外键**（23 个 CASCADE + 2 个 RESTRICT），分布在以下表中。
+
 ### CASCADE（级联删除）
-- 用户删除时，级联删除其创作记录、平台账号、发布记录
-- 创作删除时，级联删除其版本记录和发布记录
+删父表记录时，自动删除所有引用它的子表记录。**无需应用层代码介入**。
+
+| 父表 | 子表.列 | 说明 |
+|---|---|---|
+| `users` | `creations.user_id` | 删用户 → 删其所有创作 |
+| `users` | `ai_models.user_id` | 删用户 → 删其私有 AI 模型配置 |
+| `users` | `platform_accounts.user_id` | 删用户 → 删其所有平台账号 |
+| `users` | `publish_records.user_id` | 删用户 → 删其所有发布记录 |
+| `users` | `credit_transactions.user_id` | 删用户 → 删其积分流水 |
+| `users` | `membership_orders.user_id` | 删用户 → 删其会员订单 |
+| `users` | `recharge_orders.user_id` | 删用户 → 删其充值订单 |
+| `users` | `user_plugins.user_id` | 删用户 → 删其插件安装记录 |
+| `users` | `creation_plugin_selections.user_id` | 删用户 → 删其插件选择偏好 |
+| `users` | `plugin_invocations.user_id` | 删用户 → 删其插件调用日志 |
+| `users` | `plugin_reviews.user_id` | 删用户 → 删其插件评价 |
+| `users` | `oauth_accounts.user_id` | 删用户 → 删其 OAuth 凭据 |
+| `users` | `oauth_usage_logs.user_id` | 删用户 → 删其 OAuth 调用日志 |
+| `users` | `activity_participations.user_id` | 删用户 → 删其活动参与记录 |
+| `users` | `user_coupons.user_id` | 删用户 → 删其优惠券领取记录 |
+| `users` | `referral_records.referrer_id` | 删用户 → 删其作为推荐人的推广记录 |
+| `users` | `referral_records.referee_id` | 删用户 → 删其作为被推荐人的推广记录 |
+| `creations` | `creation_versions.creation_id` | **删创作 → 自动删其全部版本历史** |
+| `creations` | `publish_records.creation_id` | **删创作 → 自动删其发布记录** |
+| `creations` | `plugin_invocations.creation_id` | **删创作 → 自动删其关联的插件调用日志** |
+| `activities` | `activity_participations.activity_id` | 删活动 → 删其参与记录 |
+| `coupons` | `user_coupons.coupon_id` | 删券模板 → 删用户领取记录 |
+| `oauth_accounts` | `oauth_usage_logs.account_id` | 删 OAuth 账号 → 删其调用日志 |
 
 ### RESTRICT（限制删除）
-- AI模型被创作记录引用时，不允许删除
-- 平台账号被发布记录引用时，不允许删除
+子表有引用时，禁止删除父表记录。DB 层抛 `ERROR 1451 (23000)`。
+
+| 父表 | 子表.列 | 保护对象 |
+|---|---|---|
+| **`ai_models`** | **`creations.model_id`** | **保护 AI 模型不被误删导致创作记录悬空** |
+| **`platform_accounts`** | **`publish_records.platform_account_id`** | **保护平台账号不被误删导致发布记录悬空** |
+
+### `DELETE /api/v1/creations/{id}` 接口行为
+删除创作记录时，DB 层按以下顺序级联（无需应用层代码）：
+
+1. 校验所有权：`SELECT * FROM creations WHERE id=? AND user_id=current_user.id`（不是自己的返回 404）
+2. 执行 `DELETE FROM creations WHERE id=?`
+3. MySQL 自动触发 3 个 CASCADE：
+   - 删除 `creation_versions` 中 `creation_id=?` 的全部记录
+   - 删除 `publish_records` 中 `creation_id=?` 的全部记录
+   - 删除 `plugin_invocations` 中 `creation_id=?` 的全部记录
+4. 返回 `{"message": "删除成功"}`（HTTP 200）
+
+**反过来**（删除 AI 模型时）：
+
+- 若仍有创作引用此模型，`DELETE FROM ai_models WHERE id=?` 会被 DB 拒绝（ERROR 1451）
+- 必须先清理引用此模型的所有创作，才能删除模型
+
+### 设计原则
+- **DB 层强制**：外键约束写在 `ForeignKey(..., ondelete="...")`，编译为 DDL 时落到 MySQL
+- **应用层辅助**：`SQLAlchemy ORM` 自动识别 FK 后，`relationship()` 无需手动写 `primaryjoin`
+- **保护数据完整性**：删除有依赖的数据必须显式处理（CASCADE 自动 / RESTRICT 拒绝），杜绝悬空引用
+- **可读性优先**：用 CASCADE 让"删父即清子"符合直觉；用 RESTRICT 保护"业务核心数据"（AI 模型、平台账号）不被误删
 
 ---
 
