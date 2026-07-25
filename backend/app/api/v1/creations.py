@@ -101,7 +101,7 @@ async def create_creation(
     creation = Creation(
         user_id=current_user.id,
         title=creation_data.title,
-        creation_type=creation_data.content_type,
+        creation_type=creation_data.creation_type,
         output_content=creation_data.content,
         input_data=creation_data.input_data,
         extra_data=creation_data.extra_data

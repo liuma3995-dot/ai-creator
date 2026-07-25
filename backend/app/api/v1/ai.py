@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.core.exceptions import BusinessException
 from app.models import User, OAuthAccount, AIModel
 from app.schemas.common import success_response
+from app.schemas.ai_model import ChatRequest, ChatResponse
 from app.services.ai.factory import AIServiceFactory
 from app.services.model_service import ModelService
 from app.services.oauth.litellm_proxy import LiteLLMProxy
