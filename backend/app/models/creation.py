@@ -1,7 +1,7 @@
 """
 创作记录模型
 """
-from sqlalchemy import Column, BigInteger, String, Enum, Integer, DateTime, Text, JSON, Boolean
+from sqlalchemy import Column, BigInteger, String, Enum, Integer, DateTime, Text, JSON, Boolean, ForeignKey
 from sqlalchemy.orm import relationship, foreign
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -49,9 +49,10 @@ class Creation(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="创作ID")
     user_id = Column(
         BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="用户ID"
+        comment="用户ID（FK→users.id，删除用户时级联）"
     )
 
     creation_type = Column(
@@ -72,8 +73,10 @@ class Creation(Base):
 
     model_id = Column(
         BigInteger,
+        ForeignKey("ai_models.id", ondelete="RESTRICT"),
         index=True,
-        comment="使用的AI模型ID"
+        nullable=True,
+        comment="使用的AI模型ID（FK→ai_models.id，模型被引用禁删）"
     )
 
     status = Column(
@@ -124,17 +127,11 @@ class Creation(Base):
     )
     deleted_at = Column(DateTime, comment="删除时间（软删除）")
 
-    # 关系（不使用外键，通过 primaryjoin 指定关联条件）
-    user = relationship("User", back_populates="creations", primaryjoin="Creation.user_id == foreign(User.id)",
-                        remote_side="User.id")
-    model = relationship("AIModel", back_populates="creations",
-                         primaryjoin="Creation.model_id == foreign(AIModel.id)")
-    publish_records = relationship("PublishRecord", back_populates="creation",
-                                   primaryjoin="PublishRecord.creation_id == foreign(Creation.id)",
-                                   remote_side="Creation.id")
-    plugin_invocations = relationship("PluginInvocation", back_populates="creation",
-                                      primaryjoin="PluginInvocation.creation_id == foreign(Creation.id)",
-                                      remote_side="Creation.id")
+    # 关系（用真实外键，ORM 自然推断）
+    user = relationship("User", back_populates="creations")
+    model = relationship("AIModel", back_populates="creations")
+    publish_records = relationship("PublishRecord", back_populates="creation")
+    plugin_invocations = relationship("PluginInvocation", back_populates="creation")
 
     def __repr__(self):
         return f"<Creation(id={self.id}, type={self.creation_type}, status={self.status})>"
@@ -147,9 +144,10 @@ class CreationVersion(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="版本ID")
     creation_id = Column(
         BigInteger,
+        ForeignKey("creations.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="创作ID"
+        comment="创作ID（FK→creations.id，删除创作时级联）"
     )
 
     version_number = Column(Integer, nullable=False, comment="版本号")
@@ -164,10 +162,8 @@ class CreationVersion(Base):
         comment="创建时间"
     )
 
-    # 关系
-    creation = relationship("Creation", backref="versions",
-                            primaryjoin="CreationVersion.creation_id == foreign(Creation.id)",
-                            remote_side="Creation.id")
+    # 关系（用真实外键）
+    creation = relationship("Creation", backref="versions")
 
     def __repr__(self):
         return f"<CreationVersion(id={self.id}, creation_id={self.creation_id}, version={self.version_number})>"

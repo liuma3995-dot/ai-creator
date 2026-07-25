@@ -88,55 +88,31 @@ class User(Base):
     referral_code = Column(String(50), unique=True, index=True, default=generate_referral_code, comment="推荐码")
     referred_by = Column(BigInteger, comment="推荐人ID")
 
-    # 关系
-    creations = relationship("Creation",
-                 primaryjoin="Creation.user_id == foreign(User.id)",
-                 remote_side="User.id")
-    ai_models = relationship("AIModel", back_populates="user", primaryjoin="AIModel.user_id == foreign(User.id)")
-    publish_records = relationship("PublishRecord", back_populates="user",
-                                   primaryjoin="PublishRecord.user_id == foreign(User.id)")
-    platform_accounts = relationship("PlatformAccount", back_populates="user",
-                                     primaryjoin="PlatformAccount.user_id == foreign(User.id)")
-    credit_transactions = relationship("CreditTransaction", back_populates="user",
-                                       primaryjoin="CreditTransaction.user_id == foreign(User.id)")
-    membership_orders = relationship("MembershipOrder", back_populates="user",
-                                     primaryjoin="MembershipOrder.user_id == foreign(User.id)")
-    recharge_orders = relationship("RechargeOrder", back_populates="user",
-                                   primaryjoin="RechargeOrder.user_id == foreign(User.id)")
+    # 关系（用真实外键；ORM cascade 已不需要，靠 DB FK ON DELETE CASCADE 处理）
+    creations = relationship("Creation", back_populates="user")
+    ai_models = relationship("AIModel", back_populates="user")
+    publish_records = relationship("PublishRecord", back_populates="user")
+    platform_accounts = relationship("PlatformAccount", back_populates="user")
+    credit_transactions = relationship("CreditTransaction", back_populates="user")
+    membership_orders = relationship("MembershipOrder", back_populates="user")
+    recharge_orders = relationship("RechargeOrder", back_populates="user")
 
     # 运营相关关系
-    activity_participations = relationship("ActivityParticipation", back_populates="user",
-                                           primaryjoin="ActivityParticipation.user_id == foreign(User.id)")
-    user_coupons = relationship("UserCoupon", back_populates="user",
-                                primaryjoin="UserCoupon.user_id == foreign(User.id)")
+    activity_participations = relationship("ActivityParticipation", back_populates="user")
+    user_coupons = relationship("UserCoupon", back_populates="user")
     referrals_made = relationship("ReferralRecord", foreign_keys="ReferralRecord.referrer_id",
-                                  back_populates="referrer",
-                                  primaryjoin="ReferralRecord.referrer_id == foreign(User.id)")
+                                  back_populates="referrer")
     referrals_received = relationship("ReferralRecord", foreign_keys="ReferralRecord.referee_id",
-                                      back_populates="referee",
-                                      primaryjoin="ReferralRecord.referee_id == foreign(User.id)")
+                                      back_populates="referee")
 
     # OAuth 相关关系
-    oauth_accounts = relationship("OAuthAccount", back_populates="user",
-                                  primaryjoin="OAuthAccount.user_id == foreign(User.id)")
+    oauth_accounts = relationship("OAuthAccount", back_populates="user")
 
-    # 插件相关关系
-    plugins = relationship("UserPlugin", back_populates="user", cascade="all, delete-orphan",
-                           primaryjoin="UserPlugin.user_id == foreign(User.id)",
-                           remote_side="UserPlugin.user_id",
-                           single_parent=True)
-    plugin_selections = relationship("CreationPluginSelection", back_populates="user", cascade="all, delete-orphan",
-                                     primaryjoin="CreationPluginSelection.user_id == foreign(User.id)",
-                                     remote_side="CreationPluginSelection.user_id",
-                                     single_parent=True)
-    plugin_invocations = relationship("PluginInvocation", back_populates="user", cascade="all, delete-orphan",
-                                      primaryjoin="PluginInvocation.user_id == foreign(User.id)",
-                                      remote_side="PluginInvocation.user_id",
-                                      single_parent=True)
-    plugin_reviews = relationship("PluginReview", back_populates="user", cascade="all, delete-orphan",
-                                  primaryjoin="PluginReview.user_id == foreign(User.id)",
-                                  remote_side="PluginReview.user_id",
-                                  single_parent=True)
+    # 插件相关关系（DB FK ON DELETE CASCADE 自动清理，无需 ORM cascade）
+    plugins = relationship("UserPlugin", back_populates="user")
+    plugin_selections = relationship("CreationPluginSelection", back_populates="user")
+    plugin_invocations = relationship("PluginInvocation", back_populates="user")
+    plugin_reviews = relationship("PluginReview", back_populates="user")
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, role={self.role})>"

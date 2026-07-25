@@ -1,7 +1,7 @@
 """
 插件系统模型
 """
-from sqlalchemy import Column, BigInteger, String, Integer, DateTime, Text, JSON, Boolean, DECIMAL, Index
+from sqlalchemy import Column, BigInteger, String, Integer, DateTime, Text, JSON, Boolean, DECIMAL, Index, ForeignKey
 from sqlalchemy.orm import relationship, foreign
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -67,7 +67,13 @@ class UserPlugin(Base):
     __tablename__ = "user_plugins"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="记录ID")
-    user_id = Column(BigInteger, nullable=False, index=True, comment="用户ID")
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
     plugin_name = Column(String(100), nullable=False, comment="插件名称")
 
     is_enabled = Column(Boolean, default=True, comment="用户是否启用")
@@ -80,13 +86,8 @@ class UserPlugin(Base):
     installed_at = Column(DateTime, server_default=func.now(), comment="安装时间")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间")
 
-    # 关联 - 使用 primaryjoin 替代外键
-    user = relationship(
-        "User",
-        back_populates="plugins",
-        primaryjoin="UserPlugin.user_id == foreign(User.id)",
-        remote_side="User.id"
-    )
+    # 关联 - user 用真实外键；plugin_market 仍用 plugin_name 字符串关联（非 ID FK，viewonly）
+    user = relationship("User", back_populates="plugins")
     plugin_market = relationship(
         "PluginMarket",
         back_populates="user_plugins",
@@ -105,20 +106,21 @@ class CreationPluginSelection(Base):
     __tablename__ = "creation_plugin_selections"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="记录ID")
-    user_id = Column(BigInteger, nullable=False, index=True, comment="用户ID")
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
     tool_type = Column(String(50), nullable=False, comment="写作类型（wechat_article等）")
     selected_plugins = Column(JSON, nullable=False, comment="选择的插件列表")
 
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间")
 
-    # 关联 - 使用 primaryjoin 替代外键
-    user = relationship(
-        "User",
-        back_populates="plugin_selections",
-        primaryjoin="CreationPluginSelection.user_id == foreign(User.id)",
-        remote_side="User.id"
-    )
+    # 关联 - 用真实外键
+    user = relationship("User", back_populates="plugin_selections")
 
     __table_args__ = (
         Index("uk_user_tool", "user_id", "tool_type", unique=True),
@@ -130,8 +132,20 @@ class PluginInvocation(Base):
     __tablename__ = "plugin_invocations"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="记录ID")
-    user_id = Column(BigInteger, nullable=False, index=True, comment="用户ID")
-    creation_id = Column(BigInteger, index=True, comment="关联创作记录")
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
+    creation_id = Column(
+        BigInteger,
+        ForeignKey("creations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+        comment="关联创作ID（FK→creations.id，删创作级联；可空）"
+    )
     plugin_name = Column(String(100), nullable=False, index=True, comment="调用的插件")
 
     arguments = Column(JSON, comment="调用参数")
@@ -141,18 +155,11 @@ class PluginInvocation(Base):
 
     invoked_at = Column(DateTime, server_default=func.now(), comment="调用时间")
 
-    # 关联 - 使用 primaryjoin 替代外键
-    user = relationship(
-        "User",
-        back_populates="plugin_invocations",
-        primaryjoin="PluginInvocation.user_id == foreign(User.id)",
-        remote_side="User.id"
-    )
+    # 关联 - 用真实外键；creation 保持 viewonly
+    user = relationship("User", back_populates="plugin_invocations")
     creation = relationship(
         "Creation",
         back_populates="plugin_invocations",
-        primaryjoin="PluginInvocation.creation_id == foreign(Creation.id)",
-        remote_side="Creation.id",
         viewonly=True
     )
 
@@ -166,7 +173,13 @@ class PluginReview(Base):
     __tablename__ = "plugin_reviews"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="评价ID")
-    user_id = Column(BigInteger, nullable=False, index=True, comment="用户ID")
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
     plugin_name = Column(String(100), nullable=False, comment="插件名称")
 
     rating = Column(Integer, nullable=False, comment="评分（1-5）")
@@ -175,13 +188,8 @@ class PluginReview(Base):
     created_at = Column(DateTime, server_default=func.now(), comment="评价时间")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间")
 
-    # 关联 - 使用 primaryjoin 替代外键
-    user = relationship(
-        "User",
-        back_populates="plugin_reviews",
-        primaryjoin="PluginReview.user_id == foreign(User.id)",
-        remote_side="User.id"
-    )
+    # 关联 - 用真实外键；plugin_market 仍 viewonly
+    user = relationship("User", back_populates="plugin_reviews")
     plugin_market = relationship(
         "PluginMarket",
         back_populates="reviews",

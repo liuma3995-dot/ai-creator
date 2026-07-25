@@ -2,7 +2,7 @@
 OAuth账号模型
 """
 from datetime import datetime
-from sqlalchemy import Column, BigInteger, String, Text, Boolean, Integer, DateTime, Index
+from sqlalchemy import Column, BigInteger, String, Text, Boolean, Integer, DateTime, Index, ForeignKey
 from sqlalchemy.orm import relationship, foreign
 from app.core.database import Base
 
@@ -12,7 +12,13 @@ class OAuthAccount(Base):
     __tablename__ = "oauth_accounts"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    user_id = Column(BigInteger, nullable=False, index=True)
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
     platform = Column(String(50), nullable=False, comment="平台ID(qwen/doubao/zhipu/chatgpt/gemini/codex)")
     account_name = Column(String(100), comment="账号名称（用户自定义）")
     credentials = Column(Text, nullable=False, comment="加密的凭证（Cookie/Token）")
@@ -25,12 +31,13 @@ class OAuthAccount(Base):
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
 
-    # 关系（不使用外键）
-    user = relationship("User", back_populates="oauth_accounts",
-                        primaryjoin="OAuthAccount.user_id == foreign(User.id)", remote_side="User.id")
-    usage_logs = relationship("OAuthUsageLog", back_populates="account", cascade="all, delete-orphan",
-                              primaryjoin="OAuthUsageLog.account_id == foreign(OAuthAccount.id)",
-                              remote_side="OAuthAccount.id", single_parent=True)
+    # 关系（用真实外键；usage_logs 仍用 viewonly 模式以避免 ORM cascade 双重清理）
+    user = relationship("User", back_populates="oauth_accounts")
+    usage_logs = relationship(
+        "OAuthUsageLog",
+        primaryjoin="OAuthUsageLog.account_id == OAuthAccount.id",
+        viewonly=True
+    )
 
     def __repr__(self):
         return f"<OAuthAccount(id={self.id}, user_id={self.user_id}, platform={self.platform})>"

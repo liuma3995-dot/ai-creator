@@ -1,7 +1,7 @@
 """
 运营功能模型
 """
-from sqlalchemy import Column, BigInteger, Integer, String, Enum, DateTime, Numeric, Text, Boolean, JSON
+from sqlalchemy import Column, BigInteger, Integer, String, Enum, DateTime, Numeric, Text, Boolean, JSON, ForeignKey
 from sqlalchemy.orm import relationship, foreign
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -93,9 +93,7 @@ class Activity(Base):
     )
 
     # 关系
-    participations = relationship("ActivityParticipation", back_populates="activity",
-                                  primaryjoin="ActivityParticipation.activity_id == foreign(Activity.id)",
-                                  remote_side="Activity.id")
+    participations = relationship("ActivityParticipation", back_populates="activity")
 
     def __repr__(self):
         return f"<Activity(id={self.id}, title={self.title}, type={self.activity_type}, status={self.status})>"
@@ -106,8 +104,20 @@ class ActivityParticipation(Base):
     __tablename__ = "activity_participations"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="记录ID")
-    activity_id = Column(BigInteger, nullable=False, index=True, comment="活动ID")
-    user_id = Column(BigInteger, nullable=False, index=True, comment="用户ID")
+    activity_id = Column(
+        BigInteger,
+        ForeignKey("activities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="活动ID（FK→activities.id）"
+    )
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
 
     reward_type = Column(String(50), comment="奖励类型（credits、coupon等）")
     reward_amount = Column(Integer, comment="奖励数量")
@@ -120,12 +130,9 @@ class ActivityParticipation(Base):
         comment="参与时间"
     )
 
-    # 关系（不使用外键）
-    activity = relationship("Activity", back_populates="participations",
-                            primaryjoin="ActivityParticipation.activity_id == foreign(Activity.id)",
-                            remote_side="Activity.id")
-    user = relationship("User", back_populates="activity_participations",
-                        primaryjoin="ActivityParticipation.user_id == foreign(User.id)", remote_side="User.id")
+    # 关系（用真实外键）
+    activity = relationship("Activity", back_populates="participations")
+    user = relationship("User", back_populates="activity_participations")
 
     def __repr__(self):
         return f"<ActivityParticipation(id={self.id}, activity_id={self.activity_id}, user_id={self.user_id})>"
@@ -177,9 +184,7 @@ class Coupon(Base):
     )
 
     # 关系
-    user_coupons = relationship("UserCoupon", back_populates="coupon",
-                                primaryjoin="UserCoupon.coupon_id == foreign(Coupon.id)",
-                                remote_side="Coupon.id")
+    user_coupons = relationship("UserCoupon", back_populates="coupon")
 
     def __repr__(self):
         return f"<Coupon(id={self.id}, code={self.code}, name={self.name}, type={self.coupon_type})>"
@@ -190,8 +195,20 @@ class UserCoupon(Base):
     __tablename__ = "user_coupons"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="记录ID")
-    user_id = Column(BigInteger, nullable=False, index=True, comment="用户ID")
-    coupon_id = Column(BigInteger, nullable=False, index=True, comment="优惠券ID")
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
+    coupon_id = Column(
+        BigInteger,
+        ForeignKey("coupons.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="优惠券ID（FK→coupons.id）"
+    )
 
     status = Column(
         Enum(CouponStatus),
@@ -210,11 +227,9 @@ class UserCoupon(Base):
         comment="领取时间"
     )
 
-    # 关系（不使用外键）
-    user = relationship("User", back_populates="user_coupons", primaryjoin="UserCoupon.user_id == foreign(User.id)",
-                        remote_side="User.id")
-    coupon = relationship("Coupon", back_populates="user_coupons",
-                          primaryjoin="UserCoupon.coupon_id == foreign(Coupon.id)", remote_side="Coupon.id")
+    # 关系（用真实外键）
+    user = relationship("User", back_populates="user_coupons")
+    coupon = relationship("Coupon", back_populates="user_coupons")
 
     def __repr__(self):
         return f"<UserCoupon(id={self.id}, user_id={self.user_id}, coupon_id={self.coupon_id}, status={self.status})>"
@@ -225,8 +240,20 @@ class ReferralRecord(Base):
     __tablename__ = "referral_records"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment="记录ID")
-    referrer_id = Column(BigInteger, nullable=False, index=True, comment="推荐人ID")
-    referee_id = Column(BigInteger, nullable=False, index=True, comment="被推荐人ID")
+    referrer_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="推荐人ID（FK→users.id）"
+    )
+    referee_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="被推荐人ID（FK→users.id）"
+    )
 
     referral_code = Column(String(50), index=True, comment="推荐码")
 
@@ -263,13 +290,9 @@ class ReferralRecord(Base):
         comment="更新时间"
     )
 
-    # 关系（不使用外键）
-    referrer = relationship("User", back_populates="referrals_made",
-                            primaryjoin="ReferralRecord.referrer_id == foreign(User.id)",
-                            remote_side="ReferralRecord.referrer_id")
-    referee = relationship("User", back_populates="referrals_received",
-                           primaryjoin="ReferralRecord.referee_id == foreign(User.id)",
-                           remote_side="ReferralRecord.referee_id")
+    # 关系（用真实外键）
+    referrer = relationship("User", foreign_keys=[referrer_id], back_populates="referrals_made")
+    referee = relationship("User", foreign_keys=[referee_id], back_populates="referrals_received")
 
     def __repr__(self):
         return f"<ReferralRecord(id={self.id}, referrer_id={self.referrer_id}, referee_id={self.referee_id}, status={self.status})>"

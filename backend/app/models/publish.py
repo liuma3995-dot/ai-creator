@@ -1,7 +1,7 @@
 """
 发布管理数据模型
 """
-from sqlalchemy import Column, BigInteger, String, Text, JSON, DateTime, Enum as SQLEnum, Index
+from sqlalchemy import Column, BigInteger, String, Text, JSON, DateTime, Enum as SQLEnum, Index, ForeignKey
 from sqlalchemy.orm import relationship, foreign
 from datetime import datetime
 import enum
@@ -50,7 +50,13 @@ class PlatformAccount(Base):
     __tablename__ = "platform_accounts"
 
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(BigInteger, nullable=False, index=True)
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
     platform = Column(SQLEnum(PlatformType), nullable=False, comment="平台类型")
     account_name = Column(String(100), nullable=False, comment="账号名称")
     account_id = Column(String(100), comment="平台账号ID")
@@ -75,13 +81,9 @@ class PlatformAccount(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    # 关系（不使用外键）
-    user = relationship("User", back_populates="platform_accounts",
-                        primaryjoin="PlatformAccount.user_id == foreign(User.id)", remote_side="User.id")
-    publish_records = relationship("PublishRecord", back_populates="platform_account", cascade="all, delete-orphan",
-                                   primaryjoin="PublishRecord.platform_account_id == foreign(PlatformAccount.id)",
-                                   remote_side="PlatformAccount.id",
-                                   single_parent=True)
+    # 关系（用真实外键 + DB RESTRICT 保护自己被删；ORM 不再加级联）
+    user = relationship("User", back_populates="platform_accounts")
+    publish_records = relationship("PublishRecord", back_populates="platform_account")
 
 
 __table_args__ = (
@@ -95,9 +97,27 @@ class PublishRecord(Base):
     __tablename__ = "publish_records"
 
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(BigInteger, nullable=False, index=True)
-    creation_id = Column(BigInteger, nullable=False, index=True)
-    platform_account_id = Column(BigInteger, nullable=False, index=True)
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID（FK→users.id）"
+    )
+    creation_id = Column(
+        BigInteger,
+        ForeignKey("creations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="创作ID（FK→creations.id，删创作级联）"
+    )
+    platform_account_id = Column(
+        BigInteger,
+        ForeignKey("platform_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="平台账号ID（FK→platform_accounts.id，被引用禁删）"
+    )
 
     # 发布信息
     platform = Column(SQLEnum(PlatformType), nullable=False, comment="发布平台")
@@ -129,14 +149,10 @@ class PublishRecord(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    # 关系（不使用外键）
-    user = relationship("User", back_populates="publish_records",
-                        primaryjoin="PublishRecord.user_id == foreign(User.id)")
-    creation = relationship("Creation", back_populates="publish_records",
-                            primaryjoin="PublishRecord.creation_id == foreign(Creation.id)")
-    platform_account = relationship("PlatformAccount", back_populates="publish_records",
-                                    primaryjoin="PublishRecord.platform_account_id == foreign(PlatformAccount.id)",
-                                    remote_side="PlatformAccount.id")
+    # 关系（用真实外键）
+    user = relationship("User", back_populates="publish_records")
+    creation = relationship("Creation", back_populates="publish_records")
+    platform_account = relationship("PlatformAccount", back_populates="publish_records")
 
     def __repr__(self):
         return f"<PublishRecord(id={self.id}, platform={self.platform}, status={self.status})>"
