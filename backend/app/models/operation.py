@@ -93,7 +93,12 @@ class Activity(Base):
     )
 
     # 关系
-    participations = relationship("ActivityParticipation", back_populates="activity")
+    participations = relationship(
+        "ActivityParticipation",
+        back_populates="activity",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def __repr__(self):
         return f"<Activity(id={self.id}, title={self.title}, type={self.activity_type}, status={self.status})>"
@@ -184,7 +189,12 @@ class Coupon(Base):
     )
 
     # 关系
-    user_coupons = relationship("UserCoupon", back_populates="coupon")
+    user_coupons = relationship(
+        "UserCoupon",
+        back_populates="coupon",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def __repr__(self):
         return f"<Coupon(id={self.id}, code={self.code}, name={self.name}, type={self.coupon_type})>"

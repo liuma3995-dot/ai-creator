@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="user-status-section">
     <el-row :gutter="20">
       <el-col :xs="24" :sm="12" :md="8">
@@ -7,9 +7,13 @@
             <el-icon class="card-icon"><Coin /></el-icon>
             <span class="card-title">我的积分</span>
           </div>
-          <div class="card-content">
+          <div v-if="userStore.isLoggedIn" class="card-content">
             <div class="main-value">{{ userStore.user?.credits || 0 }}</div>
             <el-button type="primary" size="small" @click="goToRecharge">立即充值</el-button>
+          </div>
+          <div v-else class="card-content">
+            <div class="main-value">— —</div>
+            <el-button type="primary" size="small" @click="goToLogin">立即登录</el-button>
           </div>
         </el-card>
       </el-col>
@@ -19,7 +23,7 @@
             <el-icon class="card-icon"><Trophy /></el-icon>
             <span class="card-title">会员状态</span>
           </div>
-          <div class="card-content">
+          <div v-if="userStore.isLoggedIn" class="card-content">
             <div class="member-status">
               <span v-if="userStore.user?.membership_type === 'free'" class="member-badge free">免费用户</span>
               <span v-else-if="userStore.user?.membership_type === 'basic'" class="member-badge basic">基础会员</span>
@@ -29,7 +33,13 @@
             <el-button v-if="userStore.user?.membership_type === 'free'" type="warning" size="small" @click="goToMembership">
               开通会员
             </el-button>
-            <div v-else class="expire-info">到期时间：{{ formatDate(userStore.user?.membership_expires_at) }}</div>
+            <div v-else class="expire-info">到期时间：{{ formatDate(userStore.user?.member_expires_at) }}</div>
+          </div>
+          <div v-else class="card-content">
+            <div class="member-status">
+              <span class="member-badge free">未登录</span>
+            </div>
+            <el-button type="warning" size="small" @click="goToLogin">登录查看</el-button>
           </div>
         </el-card>
       </el-col>
@@ -39,8 +49,12 @@
             <el-icon class="card-icon"><Present /></el-icon>
             <span class="card-title">限时优惠</span>
           </div>
-          <div class="card-content">
-            <div class="activity-text">新用户首充赠送 10% 积分</div>
+          <div v-if="!userStore.isLoggedIn" class="card-content">
+            <div class="activity-text">新用户注册即送 1000 积分</div>
+            <el-button type="danger" size="small" @click="goToRegister">立即注册</el-button>
+          </div>
+          <div v-else class="card-content">
+            <div class="activity-text">充值积分最高赠送200元超值套餐</div>
             <el-button type="danger" size="small" @click="goToRecharge">立即参与</el-button>
           </div>
         </el-card>
@@ -65,6 +79,14 @@ const goToMembership = () => {
   router.push('/credit/membership')
 }
 
+const goToRegister = () => {
+  router.push('/register')
+}
+
+const goToLogin = () => {
+  router.push('/login')
+}
+
 const formatDate = (date: string | undefined) => {
   if (!date) return '未知'
   return new Date(date).toLocaleDateString('zh-CN')
@@ -81,14 +103,28 @@ const formatDate = (date: string | undefined) => {
     box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
     backdrop-filter: blur(14px);
     transition: all 0.25s ease;
+    display: flex;
+    flex-direction: column;
 
     &:hover {
       transform: translateY(-4px);
       box-shadow: 0 22px 40px rgba(37, 99, 235, 0.12);
     }
 
+    // 让 el-card 自己变成 flex，el-card__body 才能撑满高度
+    :deep(.el-card) {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    // el-card__body 撑满 el-card 高度，并自己也是 flex 列容器
     :deep(.el-card__body) {
       padding: 22px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;       // 防止 flex 子项因内容溢出撑爆父容器
     }
   }
 
@@ -121,6 +157,13 @@ const formatDate = (date: string | undefined) => {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    flex: 1;                                /* 撑满 card-body 剩余高度 */
+    min-height: 0;
+  }
+
+  // 把按钮推到 card-content 底部，三张卡片按钮垂直对齐
+  .card-content :deep(.el-button) {
+    margin-top: auto;
   }
 
   .main-value {
@@ -162,17 +205,27 @@ const formatDate = (date: string | undefined) => {
     font-weight: 600;
   }
 
+  // 三种按钮统一高度、字体、圆角（消除 type 间 padding 微差）
   :deep(.el-button--primary),
   :deep(.el-button--warning),
   :deep(.el-button--danger) {
     border: none;
     border-radius: 12px;
+    height: 36px;
+    line-height: 1;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
   }
 }
 
 @media (max-width: 768px) {
   .user-status-section :deep(.el-col) {
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 }
 </style>

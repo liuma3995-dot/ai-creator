@@ -25,10 +25,26 @@ class ActivityService:
     """活动服务"""
     
     @staticmethod
+    def _merge_reward_into_data(data: dict) -> dict:
+        """把顶层 reward_type/reward_amount 合并进 rules JSON，再剔除顶层键"""
+        if 'reward_type' not in data and 'reward_amount' not in data:
+            return data
+        rules = dict(data.get('rules') or {})
+        if data.get('reward_type') is not None:
+            rules['reward_type'] = data['reward_type']
+        if data.get('reward_amount') is not None:
+            rules['reward_amount'] = data['reward_amount']
+        data['rules'] = rules
+        data.pop('reward_type', None)
+        data.pop('reward_amount', None)
+        return data
+
+    @staticmethod
     def create_activity(db: Session, activity_data: ActivityCreate, creator_id: int) -> Activity:
         """创建活动"""
+        data = ActivityService._merge_reward_into_data(activity_data.model_dump())
         activity = Activity(
-            **activity_data.model_dump(),
+            **data,
             created_by=creator_id,
             status=ActivityStatus.DRAFT
         )
@@ -36,18 +52,30 @@ class ActivityService:
         db.commit()
         db.refresh(activity)
         return activity
-    
+
     @staticmethod
     def update_activity(db: Session, activity_id: int, activity_data: ActivityUpdate) -> Activity:
         """更新活动"""
         activity = db.query(Activity).filter(Activity.id == activity_id).first()
         if not activity:
             raise BusinessException("活动不存在")
-        
+
         update_data = activity_data.model_dump(exclude_unset=True)
+
+        # 处理 reward_type/reward_amount —— 合并到现有 rules
+        if 'reward_type' in update_data or 'reward_amount' in update_data:
+            rules = dict(activity.rules or {})
+            if 'reward_type' in update_data and update_data['reward_type'] is not None:
+                rules['reward_type'] = update_data['reward_type']
+            if 'reward_amount' in update_data and update_data['reward_amount'] is not None:
+                rules['reward_amount'] = update_data['reward_amount']
+            update_data['rules'] = rules
+            update_data.pop('reward_type', None)
+            update_data.pop('reward_amount', None)
+
         for key, value in update_data.items():
             setattr(activity, key, value)
-        
+
         db.commit()
         db.refresh(activity)
         return activity
@@ -218,10 +246,13 @@ class CouponService:
         coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
         if not coupon:
             raise BusinessException("优惠券不存在")
-        
+
         if not coupon.is_active:
             raise BusinessException("优惠券已失效")
-        
+        now = datetime.now()
+        if now < coupon.valid_from or now > coupon.valid_until:
+            raise BusinessException("不在领取有效期内")
+
         # 检查是否已领取
         existing = db.query(UserCoupon).filter(
             UserCoupon.coupon_id == coupon_id,
@@ -229,66 +260,62 @@ class CouponService:
         ).first()
         if existing:
             raise BusinessException("已领取过该优惠券")
-        
-        # 检查领取数量限制
+
+        # 检查领取数量限制：按已创建的 UserCoupon 行数 vs total_quantity
         if coupon.total_quantity:
-            if coupon.received_quantity >= coupon.total_quantity:
+            claimed = db.query(UserCoupon).filter(UserCoupon.coupon_id == coupon_id).count()
+            if claimed >= coupon.total_quantity:
                 raise BusinessException("优惠券已被领完")
-        
+
         # 创建用户优惠券
         user_coupon = UserCoupon(
             user_id=user_id,
             coupon_id=coupon_id,
             status=CouponStatus.UNUSED,
-            expire_time=coupon.expire_time
+            received_at=datetime.now(),
         )
         db.add(user_coupon)
-        
-        # 更新优惠券领取数量
-        coupon.received_quantity += 1
-        
+
         db.commit()
         db.refresh(user_coupon)
-        
         return user_coupon
     
     @staticmethod
     def use_coupon(db: Session, user_coupon_id: int, order_amount: Decimal) -> Dict[str, Any]:
-        """使用优惠券"""
+        """标记用户的优惠券为已使用并返回折扣额（内部计算工具）"""
         user_coupon = db.query(UserCoupon).filter(UserCoupon.id == user_coupon_id).first()
         if not user_coupon:
-            raise BusinessException("优惠券不存在")
-        
+            raise BusinessException("用户优惠券不存在")
         if user_coupon.status != CouponStatus.UNUSED:
-            raise BusinessException("优惠券已使用或已过期")
-        
-        if user_coupon.expire_time and datetime.now() > user_coupon.expire_time:
+            raise BusinessException("该优惠券已使用或已过期")
+
+        coupon = user_coupon.coupon
+        if not coupon.is_active:
+            raise BusinessException("优惠券已失效")
+        if datetime.now() > coupon.valid_until:
             user_coupon.status = CouponStatus.EXPIRED
             db.commit()
             raise BusinessException("优惠券已过期")
-        
-        coupon = user_coupon.coupon
-        
-        # 检查使用条件
-        if coupon.min_amount and order_amount < coupon.min_amount:
-            raise BusinessException(f"订单金额需满{coupon.min_amount}元才能使用")
-        
-        # 计算折扣金额
-        discount_amount = Decimal('0')
-        if coupon.coupon_type == CouponType.DISCOUNT:
-            discount_amount = order_amount * (Decimal('1') - coupon.discount_rate / Decimal('100'))
-        elif coupon.coupon_type == CouponType.CASH:
-            discount_amount = min(coupon.discount_amount, order_amount)
-        
-        # 更新优惠券状态
+        if coupon.min_amount and Decimal(str(order_amount)) < coupon.min_amount:
+            raise BusinessException(f"订单金额需满{coupon.min_amount}元")
+
+        amount = Decimal(str(order_amount))
+        if coupon.discount_type == 'percent':
+            discount = amount * (coupon.discount_value / Decimal('100'))
+            if coupon.max_discount:
+                discount = min(discount, coupon.max_discount)
+        elif coupon.discount_type == 'fixed':
+            discount = min(coupon.discount_value, amount)
+        else:
+            discount = Decimal('0')
+
         user_coupon.status = CouponStatus.USED
-        user_coupon.used_time = datetime.now()
-        
+        user_coupon.used_at = datetime.now()
         db.commit()
-        
+
         return {
-            "discount_amount": float(discount_amount),
-            "final_amount": float(order_amount - discount_amount)
+            "discount_amount": float(discount),
+            "final_amount": float(amount - discount),
         }
 
 
@@ -375,7 +402,7 @@ class ReferralService:
         # 更新推荐记录
         record.status = ReferralStatus.SETTLED
         record.reward_amount = reward_amount
-        record.completed_at = datetime.now()
+        record.settled_at = datetime.now()
         
         db.commit()
         db.refresh(record)
@@ -457,8 +484,80 @@ class OperationService:
         coupons = query.offset(skip).limit(limit).all()
         return coupons, total
     
-    async def calculate_coupon_discount(self, user_coupon_id: int, original_amount: Decimal) -> Dict[str, Any]:
-        return self.coupon_service.use_coupon(self.db, user_coupon_id, original_amount)
+    async def calculate_coupon_discount(self, user_id: int, coupon_code: str, original_amount: Decimal) -> Dict[str, Any]:
+        """按 code 试算折扣（不写入 DB）"""
+        coupon = self.db.query(Coupon).filter(
+            Coupon.code == coupon_code,
+            Coupon.is_active == True,
+        ).first()
+        if not coupon:
+            raise BusinessException("优惠券不存在或未启用")
+
+        amount = Decimal(str(original_amount))
+        if coupon.discount_type == 'percent':
+            discount_amount = amount * (coupon.discount_value / Decimal('100'))
+            if coupon.max_discount:
+                discount_amount = min(discount_amount, coupon.max_discount)
+        elif coupon.discount_type == 'fixed':
+            discount_amount = min(coupon.discount_value, amount)
+        else:
+            discount_amount = Decimal('0')
+
+        return {
+            "coupon_code": coupon.code,
+            "original_amount": float(amount),
+            "discount_amount": float(discount_amount),
+            "final_amount": float(amount - discount_amount),
+        }
+
+    async def use_coupon(self, user_id: int, use: Any) -> Dict[str, Any]:
+        """使用优惠券（按 code 定位 + 写入 UserCoupon）"""
+        code = use.coupon_code if hasattr(use, 'coupon_code') else use.get('coupon_code')
+        amount = Decimal(str(use.amount if hasattr(use, 'amount') else use.get('amount')))
+        order_type = use.order_type if hasattr(use, 'order_type') else use.get('order_type', 'recharge')
+
+        coupon = self.db.query(Coupon).filter(
+            Coupon.code == code,
+            Coupon.is_active == True,
+        ).first()
+        if not coupon:
+            raise BusinessException("优惠券不存在或未启用")
+        if coupon.coupon_type not in (
+            CouponType.RECHARGE_DISCOUNT,
+            CouponType.RECHARGE_BONUS,
+            CouponType.MEMBERSHIP_DISCOUNT,
+        ):
+            raise BusinessException("该优惠券类型暂不支持直接使用")
+
+        user_coupon = UserCoupon(
+            user_id=user_id,
+            coupon_id=coupon.id,
+            status=CouponStatus.USED,
+            used_at=datetime.now(),
+        )
+        self.db.add(user_coupon)
+
+        if coupon.discount_type == 'percent':
+            discount_amount = amount * (coupon.discount_value / Decimal('100'))
+            if coupon.max_discount:
+                discount_amount = min(discount_amount, coupon.max_discount)
+        elif coupon.discount_type == 'fixed':
+            discount_amount = min(coupon.discount_value, amount)
+        else:
+            discount_amount = Decimal('0')
+
+        final_amount = max(Decimal('0'), amount - discount_amount)
+        self.db.commit()
+        self.db.refresh(user_coupon)
+
+        return {
+            "original_amount": float(amount),
+            "discount_amount": float(discount_amount),
+            "final_amount": float(final_amount),
+            "order_type": order_type,
+            "coupon_code": code,
+            "user_coupon_id": user_coupon.id,
+        }
     
     # Referral methods
     async def generate_referral_code(self, user_id: int, generate: Any) -> Dict[str, str]:
@@ -475,6 +574,9 @@ class OperationService:
         return records, total
     
     async def get_referral_statistics(self, user_id: int) -> Dict[str, Any]:
+        user = self.db.query(User).filter(User.id == user_id).first()
+        referral_code = user.referral_code if user and user.referral_code else ""
+
         total_referrals = self.db.query(ReferralRecord).filter(ReferralRecord.referrer_id == user_id).count()
         completed_referrals = self.db.query(ReferralRecord).filter(
             ReferralRecord.referrer_id == user_id,
@@ -484,12 +586,34 @@ class OperationService:
             ReferralRecord.referrer_id == user_id,
             ReferralRecord.status == ReferralStatus.SETTLED
         ).scalar() or Decimal('0')
-        
+        pending_amount = self.db.query(func.sum(ReferralRecord.reward_amount)).filter(
+            ReferralRecord.referrer_id == user_id,
+            ReferralRecord.status == ReferralStatus.PENDING
+        ).scalar() or Decimal('0')
+
         return {
             "total_referrals": total_referrals,
             "completed_referrals": completed_referrals,
             "pending_referrals": total_referrals - completed_referrals,
-            "total_rewards": float(total_rewards)
+            "total_rewards": float(total_rewards),
+            "pending_rewards": float(pending_amount),
+            "referral_code": referral_code,
+        }
+
+    async def get_user_referral_code(self, user_id: int) -> Optional[Dict[str, str]]:
+        """获取用户的推荐码；若不存在则自动生成"""
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return None
+
+        if not user.referral_code:
+            code = self.referral_service.generate_referral_code(self.db, user_id)
+        else:
+            code = user.referral_code
+
+        return {
+            "referral_code": code,
+            "referral_url": f"http://localhost:5173/register?ref={code}",
         }
     
     # Statistics methods

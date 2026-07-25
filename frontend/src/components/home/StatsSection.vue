@@ -69,7 +69,7 @@ const loadStats = async () => {
 
     try {
       const dashboardResponse = await getDashboardStatistics()
-      stats.value.todayCreations = dashboardResponse.today?.generation_count || 0
+      stats.value.todayCreations = dashboardResponse.today_creations || 0
     } catch {
       stats.value.todayCreations = 0
     }

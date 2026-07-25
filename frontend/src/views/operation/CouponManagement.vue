@@ -11,8 +11,9 @@
       <el-form :inline="true" :model="searchForm">
         <el-form-item label="优惠券类型" style="width: 20%">
           <el-select v-model="searchForm.coupon_type" placeholder="全部" clearable>
-            <el-option label="充值优惠券" value="recharge" />
-            <el-option label="会员优惠券" value="membership" />
+            <el-option label="充值折扣券" value="recharge_discount" />
+            <el-option label="充值赠送券" value="recharge_bonus" />
+            <el-option label="会员折扣券" value="membership_discount" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态" style="width: 20%">
@@ -32,8 +33,9 @@
         <el-table-column prop="name" label="优惠券名称" />
         <el-table-column prop="coupon_type" label="类型">
           <template #default="{ row }">
-            <el-tag v-if="row.coupon_type === 'recharge'">充值优惠券</el-tag>
-            <el-tag v-else type="success">会员优惠券</el-tag>
+            <el-tag v-if="row.coupon_type === 'recharge_discount'">充值折扣</el-tag>
+            <el-tag v-else-if="row.coupon_type === 'recharge_bonus'" type="warning">充值赠送</el-tag>
+            <el-tag v-else type="success">会员折扣</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="discount_value" label="折扣">
@@ -85,14 +87,15 @@
         </el-form-item>
         <el-form-item label="优惠券类型" required>
           <el-select v-model="couponForm.coupon_type">
-            <el-option label="充值优惠券" value="recharge" />
-            <el-option label="会员优惠券" value="membership" />
+            <el-option label="充值折扣券" value="recharge_discount" />
+            <el-option label="充值赠送券" value="recharge_bonus" />
+            <el-option label="会员折扣券" value="membership_discount" />
           </el-select>
         </el-form-item>
         <el-form-item label="折扣类型" required>
           <el-select v-model="couponForm.discount_type">
+            <el-option label="百分比" value="percent" />
             <el-option label="固定金额" value="fixed" />
-            <el-option label="百分比" value="percentage" />
           </el-select>
         </el-form-item>
         <el-form-item label="折扣值" required>
@@ -109,14 +112,14 @@
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
-            v-model="couponForm.start_time"
+            v-model="couponForm.valid_from"
             type="datetime"
             placeholder="选择开始时间"
           />
         </el-form-item>
         <el-form-item label="结束时间" required>
           <el-date-picker
-            v-model="couponForm.end_time"
+            v-model="couponForm.valid_until"
             type="datetime"
             placeholder="选择结束时间"
           />
@@ -154,14 +157,14 @@ const couponForm = reactive({
   code: '',
   name: '',
   description: '',
-  coupon_type: 'recharge',
-  discount_type: 'fixed',
+  coupon_type: 'recharge_discount',
+  discount_type: 'percent',
   discount_value: 0,
   min_amount: 0,
   max_discount: undefined as number | undefined,
   total_quantity: 100,
-  start_time: '',
-  end_time: '',
+  valid_from: '',
+  valid_until: '',
 })
 
 const loadCoupons = async () => {
@@ -241,14 +244,14 @@ const resetForm = () => {
   couponForm.code = ''
   couponForm.name = ''
   couponForm.description = ''
-  couponForm.coupon_type = 'recharge'
-  couponForm.discount_type = 'fixed'
+  couponForm.coupon_type = 'recharge_discount'
+  couponForm.discount_type = 'percent'
   couponForm.discount_value = 0
   couponForm.min_amount = 0
   couponForm.max_discount = undefined
   couponForm.total_quantity = 100
-  couponForm.start_time = ''
-  couponForm.end_time = ''
+  couponForm.valid_from = ''
+  couponForm.valid_until = ''
 }
 
 onMounted(() => {

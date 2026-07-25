@@ -52,11 +52,11 @@
 
       <el-table :data="records" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="referred_id" label="被推荐用户ID" />
-        <el-table-column prop="referral_type" label="推广类型">
+        <el-table-column prop="referee_id" label="被推荐用户ID" />
+        <el-table-column prop="trigger_event" label="推广类型">
           <template #default="{ row }">
-            <el-tag v-if="row.referral_type === 'register'">注册</el-tag>
-            <el-tag v-else-if="row.referral_type === 'recharge'" type="success">充值</el-tag>
+            <el-tag v-if="row.trigger_event === 'register'">注册</el-tag>
+            <el-tag v-else-if="row.trigger_event === 'recharge'" type="success">充值</el-tag>
             <el-tag v-else type="warning">会员</el-tag>
           </template>
         </el-table-column>
@@ -68,12 +68,12 @@
         <el-table-column prop="status" label="状态">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'pending'" type="warning">待发放</el-tag>
-            <el-tag v-else-if="row.status === 'rewarded'" type="success">已发放</el-tag>
+            <el-tag v-else-if="row.status === 'settled'" type="success">已结算</el-tag>
             <el-tag v-else type="danger">已取消</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="推广时间" />
-        <el-table-column prop="rewarded_at" label="发放时间" />
+        <el-table-column prop="settled_at" label="结算时间" />
       </el-table>
 
       <el-pagination

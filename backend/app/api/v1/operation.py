@@ -1,16 +1,26 @@
 """
 运营管理API路由
 """
-from typing import Optional
+from typing import Optional, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.user import User
+
+
+def _enrich_activity(activity: Any) -> Dict[str, Any]:
+    """把 rules JSON 里的 reward_type/reward_amount 提取为顶层字段，方便前端按列渲染"""
+    d = ActivityResponse.model_validate(activity).model_dump()
+    rules = activity.rules or {}
+    d['reward_type'] = rules.get('reward_type')
+    d['reward_amount'] = int(rules.get('reward_amount') or rules.get('credits') or 0)
+    return d
 from app.schemas.common import success_response, PaginatedResponse
 from app.schemas.operation import (
-    ActivityCreate, ActivityUpdate, ActivityParticipate, CouponCreate, CouponUpdate, CouponReceive, CouponUse,
+    ActivityCreate, ActivityUpdate, ActivityParticipate, ActivityResponse,
+    CouponCreate, CouponUpdate, CouponReceive, CouponUse, CouponResponse,
     ReferralCodeGenerate, StatisticsQuery
 )
 from app.services.operation_service import OperationService
@@ -30,10 +40,10 @@ async def create_activity(
     """创建运营活动（管理员）"""
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
-    
+
     service = OperationService(db)
     result = await service.create_activity(activity, current_user.id)
-    return success_response(data=result)
+    return success_response(data=_enrich_activity(result))
 
 
 @router.get("/activities")
@@ -54,7 +64,65 @@ async def get_activities(
         limit=limit
     )
     return success_response(data=PaginatedResponse(
-        items=activities,
+        items=[_enrich_activity(a) for a in activities],
+        total=total,
+        page=skip // limit + 1 if limit > 0 else 1,
+        page_size=limit,
+        total_pages=(total + limit - 1) // limit if limit > 0 else 0
+    ))
+
+
+@router.get("/activities/{activity_id}")
+async def get_activity(
+    activity_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取活动详情"""
+    service = OperationService(db)
+    activity = await service.get_activity(activity_id)
+    if not activity:
+        raise HTTPException(status_code=404, detail="活动不存在")
+    return success_response(data=_enrich_activity(activity))
+
+
+@router.put("/activities/{activity_id}")
+async def update_activity(
+    activity_id: int,
+    activity: ActivityUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新活动（管理员）"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    service = OperationService(db)
+    result = await service.update_activity(activity_id, activity)
+    if not result:
+        raise HTTPException(status_code=404, detail="活动不存在")
+    return success_response(data=_enrich_activity(result))
+
+
+@router.get("/activities")
+async def get_activities(
+    status: Optional[str] = None,
+    activity_type: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取活动列表"""
+    service = OperationService(db)
+    activities, total = await service.get_activities(
+        status=status,
+        activity_type=activity_type,
+        skip=skip,
+        limit=limit
+    )
+    return success_response(data=PaginatedResponse(
+        items=[ActivityResponse.model_validate(a) for a in activities],
         total=total,
         page=skip // limit + 1 if limit > 0 else 1,
         page_size=limit,
@@ -186,7 +254,7 @@ async def get_coupons(
         limit=limit
     )
     return success_response(data=PaginatedResponse(
-        items=coupons,
+        items=[CouponResponse.model_validate(c) for c in coupons],
         total=total,
         page=skip // limit + 1 if limit > 0 else 1,
         page_size=limit,
@@ -246,7 +314,7 @@ async def delete_coupon(
 @router.post("/coupons/{coupon_id}/receive")
 async def receive_coupon(
     coupon_id: int,
-    receive: CouponReceive,
+    receive: Optional[CouponReceive] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

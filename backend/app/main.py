@@ -17,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartParser
+from sqlalchemy.exc import SQLAlchemyError, DataError, IntegrityError
 import logging
 
 # 在创建应用前设置multipart解析器最大大小 (50MB)
@@ -51,6 +52,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --------------------------------------------------------------------------
+# 全局异常处理 —— 把 SQLAlchemy DataError/IntegrityError 转成 400 而不是 500
+# 避免业务侧数据校验错误被裸暴露成"服务器内部错误"
+# --------------------------------------------------------------------------
+
+@app.exception_handler(DataError)
+async def data_error_handler(request: Request, exc: DataError):
+    msg = str(getattr(exc, 'orig', exc))[:200]
+    logger.warning(f"DataError on {request.method} {request.url.path}: {msg}")
+    return JSONResponse(
+        status_code=400,
+        content={"code": 400, "message": f"数据格式错误: {msg}", "data": None},
+    )
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    msg = str(getattr(exc, 'orig', exc))[:200]
+    logger.warning(f"IntegrityError on {request.method} {request.url.path}: {msg}")
+    return JSONResponse(
+        status_code=400,
+        content={"code": 400, "message": f"数据冲突: {msg}", "data": None},
+    )
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError):
+    # 非 DataError/IntegrityError 类的 SQLAlchemy 异常 —— 兜底
+    if isinstance(exc, (DataError, IntegrityError)):
+        # 已被上面 handler 接管，不应走到这里
+        return JSONResponse(status_code=500, content={"code": 500, "message": str(exc), "data": None})
+    msg = str(exc)[:200]
+    logger.exception(f"SQLAlchemyError on {request.method} {request.url.path}")
+    return JSONResponse(
+        status_code=500,
+        content={"code": 500, "message": f"数据库错误: {msg}", "data": None},
+    )
 
 # 挂载静态文件目录
 import os

@@ -38,8 +38,8 @@ export interface Coupon {
   max_discount: number | null
   total_quantity: number
   used_quantity: number
-  start_time: string
-  end_time: string
+  valid_from: string
+  valid_until: string
   is_active: boolean
   created_at: string
 }
@@ -59,16 +59,22 @@ export interface UserCoupon {
 export interface ReferralRecord {
   id: number
   referrer_id: number
-  referred_id: number
-  referral_type: string
+  referee_id: number
+  referral_code: string | null
+  reward_type: string | null
   reward_amount: number
+  reward_credits: number | null
   status: string
+  trigger_event: string | null
+  trigger_amount: number | null
+  settled_at: string | null
   created_at: string
-  rewarded_at: string | null
 }
 
 export interface ReferralStatistics {
   total_referrals: number
+  completed_referrals: number
+  pending_referrals: number
   total_rewards: number
   pending_rewards: number
   referral_code: string
@@ -102,7 +108,7 @@ export const getActivities = (params?: {
 }
 
 export const getActivity = (activityId: number) => {
-  return request.get<Activity>(`/api/v1/operation/activities/${activityId}`)
+  return request.get<Activity>(`/v1/operation/activities/${activityId}`)
 }
 
 export const createActivity = (data: {
@@ -120,22 +126,22 @@ export const createActivity = (data: {
 }
 
 export const updateActivity = (activityId: number, data: Partial<Activity>) => {
-  return request.put<Activity>(`/api/v1/operation/activities/${activityId}`, data)
+  return request.put<Activity>(`/v1/operation/activities/${activityId}`, data)
 }
 
 export const deleteActivity = (activityId: number) => {
-  return request.delete(`/api/v1/operation/activities/${activityId}`)
+  return request.delete(`/v1/operation/activities/${activityId}`)
 }
 
 export const participateActivity = (activityId: number) => {
-  return request.post<ActivityParticipation>(`/api/v1/operation/activities/${activityId}/participate`)
+  return request.post<ActivityParticipation>(`/v1/operation/activities/${activityId}/participate`)
 }
 
 export const getActivityParticipations = (activityId: number, params?: {
   skip?: number
   limit?: number
 }) => {
-  return request.get<ActivityParticipation[]>(`/api/v1/operation/activities/${activityId}/participations`, { params })
+  return request.get<ActivityParticipation[]>(`/v1/operation/activities/${activityId}/participations`, { params })
 }
 
 // 优惠券管理
@@ -149,35 +155,35 @@ export const getCoupons = (params?: {
 }
 
 export const getCoupon = (couponId: number) => {
-  return request.get<Coupon>(`/api/v1/operation/coupons/${couponId}`)
+  return request.get<Coupon>(`/v1/operation/coupons/${couponId}`)
 }
 
 export const createCoupon = (data: {
   code: string
   name: string
-  description: string
+  description?: string
   coupon_type: string
   discount_type: string
   discount_value: number
-  min_amount: number
+  min_amount?: number
   max_discount?: number
-  total_quantity: number
-  start_time: string
-  end_time: string
+  total_quantity?: number
+  valid_from: string
+  valid_until: string
 }) => {
   return request.post<Coupon>('/v1/operation/coupons', data)
 }
 
 export const updateCoupon = (couponId: number, data: Partial<Coupon>) => {
-  return request.put<Coupon>(`/api/v1/operation/coupons/${couponId}`, data)
+  return request.put<Coupon>(`/v1/operation/coupons/${couponId}`, data)
 }
 
 export const deleteCoupon = (couponId: number) => {
-  return request.delete(`/api/v1/operation/coupons/${couponId}`)
+  return request.delete(`/v1/operation/coupons/${couponId}`)
 }
 
 export const receiveCoupon = (couponId: number) => {
-  return request.post<UserCoupon>(`/api/v1/operation/coupons/${couponId}/receive`)
+  return request.post<UserCoupon>(`/v1/operation/coupons/${couponId}/receive`)
 }
 
 export const getUserCoupons = (params?: {
@@ -185,7 +191,7 @@ export const getUserCoupons = (params?: {
   limit?: number
   status?: string
 }) => {
-  return request.get<UserCoupon[]>('/v1/operation/coupons/my', { params })
+  return request.get<UserCoupon[]>('/v1/operation/user/coupons', { params })
 }
 
 // 推广管理

@@ -2,7 +2,7 @@
 运营功能Schema
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 from decimal import Decimal
 
@@ -14,12 +14,15 @@ class ActivityCreate(BaseModel):
     title: str = Field(..., description="活动标题")
     activity_type: str = Field(..., description="活动类型")
     description: Optional[str] = Field(None, description="活动描述")
-    rules: Optional[Dict[str, Any]] = Field(None, description="活动规则")
+    rules: Optional[Dict[str, Any]] = Field(None, description="活动规则（reward_type/reward_amount 存入此处）")
     start_time: datetime = Field(..., description="开始时间")
     end_time: datetime = Field(..., description="结束时间")
     target_users: Optional[Dict[str, Any]] = Field(None, description="目标用户条件")
     max_participants: Optional[int] = Field(None, description="最大参与人数")
     budget: Optional[Decimal] = Field(None, description="活动预算")
+    # 兼容旧前端表单的顶层字段，自动合并到 rules
+    reward_type: Optional[str] = Field(None, description="奖励类型（credits/coupon等）")
+    reward_amount: Optional[int] = Field(None, description="奖励金额/积分")
 
 
 class ActivityUpdate(BaseModel):
@@ -33,6 +36,9 @@ class ActivityUpdate(BaseModel):
     target_users: Optional[Dict[str, Any]] = None
     max_participants: Optional[int] = None
     budget: Optional[Decimal] = None
+    # 兼容旧前端表单的顶层字段，自动合并到 rules
+    reward_type: Optional[str] = None
+    reward_amount: Optional[int] = None
 
 
 class ActivityResponse(BaseModel):
@@ -82,8 +88,10 @@ class CouponCreate(BaseModel):
     """创建优惠券"""
     code: str = Field(..., description="优惠券码")
     name: str = Field(..., description="优惠券名称")
-    coupon_type: str = Field(..., description="优惠券类型")
-    discount_type: str = Field(..., description="折扣类型")
+    coupon_type: Literal["recharge_discount", "recharge_bonus", "membership_discount"] = Field(
+        ..., description="优惠券类型（仅限合法 enum 值）"
+    )
+    discount_type: Literal["percent", "fixed"] = Field(..., description="折扣类型")
     discount_value: Decimal = Field(..., description="折扣值")
     min_amount: Optional[Decimal] = Field(None, description="最低消费金额")
     max_discount: Optional[Decimal] = Field(None, description="最大优惠金额")
@@ -130,8 +138,8 @@ class CouponResponse(BaseModel):
 
 
 class CouponReceive(BaseModel):
-    """领取优惠券"""
-    coupon_code: str = Field(..., description="优惠券码")
+    """领取优惠券（按 URL 中的 coupon_id 定位，body 可选）"""
+    coupon_code: Optional[str] = Field(None, description="优惠券码（可选，URL 已含）")
 
 
 class CouponUse(BaseModel):
@@ -208,9 +216,9 @@ class ReferralStatisticsResponse(BaseModel):
 
 class StatisticsQuery(BaseModel):
     """统计查询"""
-    stat_type: str = Field(..., description="统计类型: daily-日, weekly-周, monthly-月")
-    start_date: datetime = Field(..., description="开始日期")
-    end_date: datetime = Field(..., description="结束日期")
+    stat_type: str = Field("daily", description="统计类型: daily-日, weekly-周, monthly-月")
+    start_date: Optional[datetime] = Field(None, description="开始日期")
+    end_date: Optional[datetime] = Field(None, description="结束日期")
 
 
 class OperationStatisticsResponse(BaseModel):

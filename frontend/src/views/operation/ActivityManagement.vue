@@ -38,8 +38,17 @@
             <el-tag v-else-if="row.activity_type === 'membership_discount'" type="warning">会员优惠</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="reward_amount" label="奖励金额" />
-        <el-table-column prop="current_participants" label="参与人数" />
+        <el-table-column label="奖励金额" width="100">
+          <template #default="{ row }">
+            {{ row.reward_amount ?? 0 }}
+          </template>
+        </el-table-column>
+        <el-table-column label="参与人数" width="120">
+          <template #default="{ row }">
+            <span>{{ row.current_participants ?? 0 }}</span>
+            <span v-if="row.max_participants" style="color: #909399"> / {{ row.max_participants }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'draft'" type="info">草稿</el-tag>
@@ -160,7 +169,7 @@ const loadActivities = async () => {
     }
     const response = await operationApi.getActivities(params)
     activities.value = response.data.items
-    pagination.total = response.data.length
+    pagination.total = response.data.total
   } catch (error) {
     ElMessage.error('加载活动列表失败')
   }
@@ -173,11 +182,16 @@ const showCreateDialog = () => {
 }
 
 const viewActivity = (activity: operationApi.Activity) => {
+  const max = activity.max_participants
+  const cur = activity.current_participants ?? 0
+  const participantsLine = max
+    ? `<p><strong>参与人数：</strong>${cur} / ${max}</p>`
+    : `<p><strong>参与人数：</strong>${cur}（不限）</p>`
   ElMessageBox.alert(
     `<p><strong>活动标题：</strong>${activity.title}</p>
-     <p><strong>活动描述：</strong>${activity.description}</p>
-     <p><strong>奖励金额：</strong>${activity.reward_amount}</p>
-     <p><strong>参与人数：</strong>${activity.current_participants}</p>`,
+     <p><strong>活动描述：</strong>${activity.description ?? '（无）'}</p>
+     <p><strong>奖励金额：</strong>${activity.reward_amount ?? 0}</p>
+     ${participantsLine}`,
     '活动详情',
     {
       dangerouslyUseHTMLString: true,

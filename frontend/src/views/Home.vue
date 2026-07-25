@@ -23,7 +23,8 @@
       </div>
     </div>
 
-    <UserStatusCards v-if="userStore.isLoggedIn" />
+    <!-- 始终渲染 UserStatusCards —— 内部根据登录态切换内容 -->
+    <UserStatusCards />
     <ToolsSection />
     <MembershipBenefits />
   </div>
