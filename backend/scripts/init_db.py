@@ -16,69 +16,34 @@ def init_db():
     """初始化数据库"""
     print("开始初始化数据库...")
 
-    # 先禁用外键约束检查
+    # 直接用 Base.metadata.create_all —— 真实 FK 约束会一并创建
+    # （models/ 里已加 ForeignKey(..., ondelete="CASCADE"/"RESTRICT")）
+    print("正在创建所有表（含外键约束）...")
+    from app.core.database import Base
+
+    # 禁用外键检查让 DROP/重建顺序更稳
     with engine.connect() as conn:
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
         conn.commit()
 
-    # 重新创建所有表（不带外键约束）
-    print("正在创建所有表...")
-    from app.core.database import Base
+    # 如果表已存在则先 drop（仅供重建场景，默认空库不会触发）
+    Base.metadata.drop_all(bind=engine)
+    # 重新创建（带 FK 约束）
+    Base.metadata.create_all(bind=engine)
 
-    # 创建一个没有外键约束的元数据
-    from sqlalchemy import MetaData
-    metadata = MetaData()
+    print("[SUCCESS] All tables created (with FK constraints)")
 
-    # 复制所有表结构但移除外键约束
-    for table_name, table in Base.metadata.tables.items():
-        # 创建新的表对象，移除外键约束
-        columns = []
-        for column in table.columns:
-            # 复制列定义但移除外键信息
-            col_args = []
-            if hasattr(column, 'name'):
-                col_args.append(column.name)
-            if hasattr(column, 'type'):
-                col_args.append(column.type)
-
-            # 复制其他属性
-            kwargs = {}
-            if column.primary_key:
-                kwargs['primary_key'] = True
-            if column.autoincrement is not None:
-                kwargs['autoincrement'] = column.autoincrement
-            if column.nullable is not None:
-                kwargs['nullable'] = column.nullable
-            if column.default is not None:
-                kwargs['default'] = column.default
-            if column.server_default is not None:
-                kwargs['server_default'] = column.server_default
-            if column.comment is not None:
-                kwargs['comment'] = column.comment
-            if column.index:
-                kwargs['index'] = True
-            if column.unique:
-                kwargs['unique'] = True
-
-            from sqlalchemy import Column
-            new_column = Column(*col_args, **kwargs)
-            columns.append(new_column)
-
-        # 创建新表（无外键约束）
-        from sqlalchemy import Table
-        new_table = Table(table_name, metadata, *columns)
-
-    # 创建所有表
-    metadata.create_all(bind=engine)
-    print("[SUCCESS] All tables created")
-
-    # 重新启用外键约束检查
+    # 重新启用外键检查
     with engine.connect() as conn:
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
         conn.commit()
 
     print("\n[SUCCESS] Database initialization completed!")
-    print("\nDatabase tables have been created successfully. You can now insert test data or use API to create users.")
+    print("外键策略（按 docs/DATABASE.md 设计）:")
+    print("  CASCADE:  user→creations / platform_accounts / publish_records / plugin_invocations / user_plugins / ...")
+    print("  CASCADE:  creation→creation_versions / publish_records / plugin_invocations")
+    print("  RESTRICT: ai_models ← creations.model_id  （被引用禁删）")
+    print("  RESTRICT: platform_accounts ← publish_records.platform_account_id  （被引用禁删）")
 
 
 if __name__ == "__main__":
