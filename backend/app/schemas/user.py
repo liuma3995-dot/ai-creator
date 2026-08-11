@@ -13,6 +13,7 @@ class UserRegister(BaseModel):
     email: EmailStr = Field(..., description="邮箱")
     password: str = Field(..., min_length=6, max_length=50, description="密码")
     nickname: Optional[str] = Field(None, max_length=50, description="昵称")
+    referral_code: Optional[str] = Field(None, max_length=50, description="推荐码（可选）")
     
     @validator('username')
     def username_alphanumeric(cls, v):

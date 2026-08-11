@@ -83,18 +83,20 @@ def init_db() -> None:
     
     logger.info("开始创建数据库表...")
     
-    # 禁用外键检查以避免创建顺序问题
-    with engine.connect() as conn:
-        conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-        conn.commit()
+    # 禁用外键检查以避免创建顺序问题（仅 MySQL 支持该语法）
+    if engine.dialect.name == "mysql":
+        with engine.connect() as conn:
+            conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+            conn.commit()
     
     # 创建所有表
     Base.metadata.create_all(bind=engine)
     
-    # 重新启用外键检查
-    with engine.connect() as conn:
-        conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-        conn.commit()
+    # 重新启用外键检查（仅 MySQL 支持该语法）
+    if engine.dialect.name == "mysql":
+        with engine.connect() as conn:
+            conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+            conn.commit()
     
     logger.info("数据库表创建完成")
     

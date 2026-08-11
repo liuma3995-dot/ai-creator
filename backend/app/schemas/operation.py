@@ -88,7 +88,7 @@ class CouponCreate(BaseModel):
     """创建优惠券"""
     code: str = Field(..., description="优惠券码")
     name: str = Field(..., description="优惠券名称")
-    coupon_type: Literal["recharge_discount", "recharge_bonus", "membership_discount"] = Field(
+    coupon_type: Literal["recharge_discount", "recharge_bonus", "membership_discount", "general"] = Field(
         ..., description="优惠券类型（仅限合法 enum 值）"
     )
     discount_type: Literal["percent", "fixed"] = Field(..., description="折扣类型")
@@ -96,6 +96,7 @@ class CouponCreate(BaseModel):
     min_amount: Optional[Decimal] = Field(None, description="最低消费金额")
     max_discount: Optional[Decimal] = Field(None, description="最大优惠金额")
     total_quantity: Optional[int] = Field(None, description="总发行量")
+    per_user_limit: Optional[int] = Field(None, description="每人限领数量")
     valid_from: datetime = Field(..., description="有效期开始")
     valid_until: datetime = Field(..., description="有效期结束")
     description: Optional[str] = Field(None, description="使用说明")
@@ -109,6 +110,7 @@ class CouponUpdate(BaseModel):
     min_amount: Optional[Decimal] = None
     max_discount: Optional[Decimal] = None
     total_quantity: Optional[int] = None
+    per_user_limit: Optional[int] = None
     valid_from: Optional[datetime] = None
     valid_until: Optional[datetime] = None
     description: Optional[str] = None
@@ -126,6 +128,7 @@ class CouponResponse(BaseModel):
     min_amount: Optional[Decimal]
     max_discount: Optional[Decimal]
     total_quantity: Optional[int]
+    per_user_limit: Optional[int]
     used_quantity: int
     valid_from: datetime
     valid_until: datetime
@@ -140,6 +143,11 @@ class CouponResponse(BaseModel):
 class CouponReceive(BaseModel):
     """领取优惠券（按 URL 中的 coupon_id 定位，body 可选）"""
     coupon_code: Optional[str] = Field(None, description="优惠券码（可选，URL 已含）")
+
+
+class CouponIssue(BaseModel):
+    """发放优惠券给指定用户（管理员）"""
+    user_ids: List[int] = Field(..., min_length=1, description="目标用户ID列表")
 
 
 class CouponUse(BaseModel):
@@ -175,6 +183,17 @@ class CouponCalculateResponse(BaseModel):
 class ReferralCodeGenerate(BaseModel):
     """生成推荐码"""
     pass
+
+
+class ReferralApprove(BaseModel):
+    """审核通过推荐返利（管理员）"""
+    reward_amount: Optional[Decimal] = Field(None, description="返利金额（默认 10 元）")
+
+
+class ReferralApproveBatch(BaseModel):
+    """批量审核通过推荐返利（管理员）"""
+    record_ids: List[int] = Field(..., min_length=1, description="返利记录ID列表")
+    reward_amount: Optional[Decimal] = Field(None, description="返利金额（默认 10 元）")
 
 
 class ReferralCodeResponse(BaseModel):

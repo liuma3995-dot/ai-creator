@@ -16,6 +16,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.credit import TransactionType
+from app.models.operation import ReferralRecord, ReferralStatus
 from app.models.user import User
 from app.schemas.common import success_response
 from app.schemas.user import (
@@ -51,6 +52,18 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)) -> Any:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="邮箱已被注册",
         )
+
+    # 先校验推荐码：无效则直接拒绝注册，避免产生半成品用户
+    referrer = None
+    if user_in.referral_code:
+        referrer = db.query(User).filter(
+            User.referral_code == user_in.referral_code
+        ).first()
+        if not referrer:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="推荐码无效",
+            )
     
     # 创建新用户
     user = User(
@@ -62,6 +75,16 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)) -> Any:
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # 推荐码注册：建立推荐关系
+    if referrer is not None:
+        db.add(ReferralRecord(
+            referrer_id=referrer.id,
+            referee_id=user.id,
+            referral_code=user_in.referral_code,
+            status=ReferralStatus.PENDING,
+        ))
+        db.commit()
     
     # 新用户注册赠送 1000 积分
     try:

@@ -21,6 +21,7 @@ from app.schemas.credit import (
     CreditStatisticsResponse, MembershipStatisticsResponse
 )
 from app.core.exceptions import BusinessException
+from app.services.operation_service import CouponService
 
 
 class CreditService:
@@ -288,6 +289,17 @@ class RechargeService:
         
         if not price:
             raise BusinessException("价格套餐不存在或已下架")
+
+        # 优惠券抵扣
+        discount = Decimal("0")
+        if order_data.coupon_code:
+            discount = CouponService.calculate_order_discount(
+                db,
+                order_data.coupon_code,
+                price.amount,
+                "recharge",
+            )
+        final_amount = max(Decimal("0"), Decimal(str(price.amount)) - discount)
         
         # 生成订单号
         order_no = f"R{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:8].upper()}"
@@ -296,7 +308,7 @@ class RechargeService:
         order = RechargeOrder(
             order_no=order_no,
             user_id=user_id,
-            amount=price.amount,
+            amount=final_amount,
             credits=price.credits,
             bonus_credits=price.bonus_credits,
             payment_method=order_data.payment_method,
@@ -306,6 +318,13 @@ class RechargeService:
         db.add(order)
         db.commit()
         db.refresh(order)
+
+        # 标记优惠券已使用
+        if order_data.coupon_code:
+            CouponService.mark_order_coupon_used(
+                db, user_id, order_data.coupon_code, order.id
+            )
+            db.commit()
         
         return order
     
@@ -420,6 +439,17 @@ class MembershipService:
         
         if not price:
             raise BusinessException("会员套餐不存在或已下架")
+
+        # 优惠券抵扣
+        discount = Decimal("0")
+        if order_data.coupon_code:
+            discount = CouponService.calculate_order_discount(
+                db,
+                order_data.coupon_code,
+                price.amount,
+                "membership",
+            )
+        final_amount = max(Decimal("0"), Decimal(str(price.amount)) - discount)
         
         # 生成订单号
         order_no = f"M{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:8].upper()}"
@@ -429,9 +459,9 @@ class MembershipService:
             order_no=order_no,
             user_id=user_id,
             membership_type=price.membership_type,
-            amount=price.amount,
+            amount=final_amount,
             original_amount=price.original_amount,
-            discount_amount=(price.original_amount or price.amount) - price.amount,
+            discount_amount=(price.original_amount or price.amount) - final_amount,
             payment_method=order_data.payment_method,
             payment_status=PaymentStatus.PENDING
         )
@@ -439,6 +469,13 @@ class MembershipService:
         db.add(order)
         db.commit()
         db.refresh(order)
+
+        # 标记优惠券已使用
+        if order_data.coupon_code:
+            CouponService.mark_order_coupon_used(
+                db, user_id, order_data.coupon_code, order.id
+            )
+            db.commit()
         
         return order
     

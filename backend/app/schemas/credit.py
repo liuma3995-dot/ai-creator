@@ -48,6 +48,7 @@ class RechargeOrderCreate(BaseModel):
     """创建充值订单"""
     price_id: int = Field(..., description="价格套餐ID")
     payment_method: str = Field(..., description="支付方式: alipay, wechat")
+    coupon_code: Optional[str] = Field(None, max_length=50, description="优惠券码（可选）")
 
 
 class RechargeOrderResponse(BaseModel):
@@ -72,6 +73,7 @@ class MembershipOrderCreate(BaseModel):
     """创建会员订单"""
     price_id: int = Field(..., description="价格套餐ID")
     payment_method: str = Field(..., description="支付方式: alipay, wechat")
+    coupon_code: Optional[str] = Field(None, max_length=50, description="优惠券码（可选）")
 
 
 class MembershipOrderResponse(BaseModel):

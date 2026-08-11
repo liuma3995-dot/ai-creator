@@ -14,6 +14,7 @@
             <el-option label="充值折扣券" value="recharge_discount" />
             <el-option label="充值赠送券" value="recharge_bonus" />
             <el-option label="会员折扣券" value="membership_discount" />
+            <el-option label="通用券" value="general" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态" style="width: 20%">
@@ -55,10 +56,12 @@
             <el-tag v-else type="danger">禁用</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="340">
           <template #default="{ row }">
             <el-button size="small" @click="viewCoupon(row)">查看</el-button>
             <el-button size="small" type="primary" @click="editCoupon(row)">编辑</el-button>
+            <el-button size="small" type="success" @click="showIssueDialog(row)">发放</el-button>
+            <el-button size="small" type="warning" @click="voidCouponAction(row)">作废</el-button>
             <el-button size="small" type="danger" @click="deleteCoupon(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -90,6 +93,7 @@
             <el-option label="充值折扣券" value="recharge_discount" />
             <el-option label="充值赠送券" value="recharge_bonus" />
             <el-option label="会员折扣券" value="membership_discount" />
+            <el-option label="通用券" value="general" />
           </el-select>
         </el-form-item>
         <el-form-item label="折扣类型" required>
@@ -110,6 +114,9 @@
         <el-form-item label="发行数量" required>
           <el-input-number v-model="couponForm.total_quantity" :min="1" />
         </el-form-item>
+        <el-form-item label="每人限领数量">
+          <el-input-number v-model="couponForm.per_user_limit" :min="1" />
+        </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
             v-model="couponForm.valid_from"
@@ -128,6 +135,27 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="saveCoupon">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 发放优惠券对话框 -->
+    <el-dialog v-model="issueVisible" title="发放优惠券" width="480px">
+      <el-form label-width="100px">
+        <el-form-item label="优惠券">
+          <span>{{ issueTarget?.code }}（{{ issueTarget?.name }}）</span>
+        </el-form-item>
+        <el-form-item label="用户ID" required>
+          <el-input
+            v-model="issueUserIds"
+            type="textarea"
+            :rows="4"
+            placeholder="填写用户ID，多个用英文逗号分隔，如：1,2,3"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="issueVisible = false">取消</el-button>
+        <el-button type="primary" @click="doIssue">确认发放</el-button>
       </template>
     </el-dialog>
   </div>
@@ -152,6 +180,9 @@ const pagination = reactive({
 
 const dialogVisible = ref(false)
 const dialogTitle = ref('创建优惠券')
+const issueVisible = ref(false)
+const issueTarget = ref<operationApi.Coupon | null>(null)
+const issueUserIds = ref('')
 const couponForm = reactive({
   id: 0,
   code: '',
@@ -163,6 +194,7 @@ const couponForm = reactive({
   min_amount: 0,
   max_discount: undefined as number | undefined,
   total_quantity: 100,
+  per_user_limit: undefined as number | undefined,
   valid_from: '',
   valid_until: '',
 })
@@ -200,6 +232,49 @@ const viewCoupon = (coupon: operationApi.Coupon) => {
       dangerouslyUseHTMLString: true,
     }
   )
+}
+
+const showIssueDialog = (coupon: operationApi.Coupon) => {
+  issueTarget.value = coupon
+  issueUserIds.value = ''
+  issueVisible.value = true
+}
+
+const doIssue = async () => {
+  if (!issueTarget.value) return
+  const ids = issueUserIds.value
+    .split(',')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isInteger(n) && n > 0)
+  if (ids.length === 0) {
+    ElMessage.warning('请填写有效的用户ID')
+    return
+  }
+  try {
+    const response = await operationApi.issueCoupon(issueTarget.value.id, ids)
+    ElMessage.success(`已发放 ${response.data.issued} 张（重复领取自动跳过）`)
+    issueVisible.value = false
+    loadCoupons()
+  } catch (error) {
+    ElMessage.error('发放失败')
+  }
+}
+
+const voidCouponAction = async (coupon: operationApi.Coupon) => {
+  try {
+    await ElMessageBox.confirm(
+      '确定作废这张优惠券吗？用户未使用的券将全部失效。',
+      '提示',
+      { type: 'warning' }
+    )
+    await operationApi.voidCoupon(coupon.id)
+    ElMessage.success('作废成功')
+    loadCoupons()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('作废失败')
+    }
+  }
 }
 
 const editCoupon = (coupon: operationApi.Coupon) => {
@@ -250,6 +325,7 @@ const resetForm = () => {
   couponForm.min_amount = 0
   couponForm.max_discount = undefined
   couponForm.total_quantity = 100
+  couponForm.per_user_limit = undefined
   couponForm.valid_from = ''
   couponForm.valid_until = ''
 }

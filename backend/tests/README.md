@@ -193,6 +193,74 @@ jobs:
 4. 添加清晰的文档字符串
 5. 确保测试独立且可重复运行
 
+## 运营管理模块测试
+
+覆盖前端“运营管理”菜单下的全部 7 个子模块（活动、优惠券、推广、数据统计、用户管理、流量统计、调用监控）。
+
+### 测试文件
+
+```
+tests/
+├── test_operation_service.py   # 服务层：活动/优惠券/推广/统计业务规则
+├── test_operation_api.py       # operation 路由 API：权限、404、响应结构
+├── test_admin_users_api.py     # 用户管理 API
+├── test_traffic_api.py         # 流量统计 API（mock Redis）
+└── test_model_usage_api.py     # 调用监控 API
+```
+
+### 运行方式
+
+```bash
+cd backend
+venv\Scripts\python -m pytest tests/test_operation_service.py tests/test_operation_api.py tests/test_admin_users_api.py tests/test_traffic_api.py tests/test_model_usage_api.py -v
+```
+
+### 关键说明
+
+1. **权限矩阵**：管理员接口统一覆盖匿名（401/403）、普通用户（403）、管理员（200）三条路径。
+2. **Redis**：流量统计的埋点上报与缓存统计会调用 `tracker_service`，测试通过 `mock_tracker` fixture 替换，不依赖真实 Redis。
+3. **种子数据**：`client` fixture 启动应用时会初始化基础数据（价格配置、插件、种子管理员），统计类断言请与库内实际数量对比，勿写死 0。
+4. **SQLite 兼容**：`init_db()` 已按数据库方言跳过 MySQL 专用语句，SQLite 测试环境可正常启动。
+
+## 运营管理集成测试
+
+集成测试使用真实 MySQL（`ai_creator_test` 测试库）与 Redis（db 1），验证跨模块协作链路。MySQL 测试库不可用时自动跳过。
+
+### 测试文件
+
+```
+tests/integration/
+├── conftest.py                              # MySQL/Redis fixtures、用例间数据清理
+├── test_activity_credit_integration.py      # 活动参与 → 积分发放链路
+├── test_traffic_integration.py              # 埋点 Redis → 后台同步 → 查询链路
+├── test_admin_users_integration.py          # 用户管理全链路
+├── test_statistics_integration.py           # 统计跨模块聚合口径
+└── test_model_usage_integration.py          # AI 调用 → 监控日志链路
+```
+
+### 运行方式
+
+```bash
+cd backend
+venv\Scripts\python -m pytest tests/integration -m integration -v
+```
+
+前置条件：MySQL 已创建 `ai_creator_test` 测试库（`CREATE DATABASE ai_creator_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`）；Memurai/Redis 运行中。
+
+### 集成测试注意事项
+
+1. **数据隔离**：只用独立测试库，每个用例结束后清空全部表；后台同步线程不启动，由测试手动触发同步方法。
+2. **隔离级别**：测试引擎使用 READ COMMITTED，保证验证会话能立即看到 API 会话提交的数据；跨会话修改的 ORM 对象需先 `expire_all()` 再查询。
+3. **Decimal 序列化**：FastAPI 会把 Decimal 序列化为字符串（如 `"total_tokens": "15"`），断言按数值比较（`float(...)`）。
+4. **时间边界**：系统时钟存在回拨抖动，时间相关测试数据使用相对当前时间的固定偏移，避免边界断言偶发失败。
+
+### 已知缺口（代码未接线，暂不做集成测试目标）
+
+- **注册 → 推荐绑定**：`auth /register` 未调用 `ReferralService.process_referral`，注册时不会建立推荐关系。
+- **优惠券 → 订单抵扣**：`credit.py` 无 coupon 引用，`use_coupon` 只标记状态、不参与充值/会员订单金额计算。
+
+上述两条链路补代码后，再补充对应集成测试。
+
 ## 参考资料
 
 - [Pytest文档](https://docs.pytest.org/)

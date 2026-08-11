@@ -134,6 +134,25 @@ def test_user(db_session):
 
 
 @pytest.fixture
+def admin_user(db_session):
+    """创建管理员测试用户"""
+    from app.core.security import get_password_hash
+    from app.models.user import UserRole, UserStatus
+
+    user = User(
+        username="adminuser",
+        email="admin@example.com",
+        password_hash=get_password_hash("adminpass123"),
+        role=UserRole.ADMIN,
+        status=UserStatus.ACTIVE,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
 def test_platform(db_session):
     """创建测试平台配置"""
     platform = PlatformConfig(
@@ -196,6 +215,21 @@ def auth_headers(client, test_user):
         json={
             "username": test_user.username,
             "password": "testpass123",
+        }
+    )
+    assert response.status_code == 200
+    token = response.json()["data"]["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def admin_headers(client, admin_user):
+    """获取管理员认证头"""
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": admin_user.username,
+            "password": "adminpass123",
         }
     )
     assert response.status_code == 200

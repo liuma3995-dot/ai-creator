@@ -12,14 +12,16 @@
         <el-form-item label="活动类型" style="width: 20%">
           <el-select v-model="searchForm.activity_type" placeholder="全部" clearable>
             <el-option label="积分赠送" value="credit_gift" />
-            <el-option label="充值优惠" value="recharge_discount" />
-            <el-option label="会员优惠" value="membership_discount" />
+            <el-option label="充值优惠" value="recharge_bonus" />
+            <el-option label="优惠券活动" value="coupon" />
+            <el-option label="推广返利" value="referral" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态" style="width: 20%">
           <el-select v-model="searchForm.status" placeholder="全部" clearable>
             <el-option label="草稿" value="draft" />
             <el-option label="进行中" value="active" />
+            <el-option label="暂停" value="paused" />
             <el-option label="已结束" value="ended" />
           </el-select>
         </el-form-item>
@@ -34,8 +36,9 @@
         <el-table-column prop="activity_type" label="活动类型">
           <template #default="{ row }">
             <el-tag v-if="row.activity_type === 'credit_gift'">积分赠送</el-tag>
-            <el-tag v-else-if="row.activity_type === 'recharge_discount'" type="success">充值优惠</el-tag>
-            <el-tag v-else-if="row.activity_type === 'membership_discount'" type="warning">会员优惠</el-tag>
+            <el-tag v-else-if="row.activity_type === 'recharge_bonus'" type="success">充值优惠</el-tag>
+            <el-tag v-else-if="row.activity_type === 'coupon'" type="warning">优惠券活动</el-tag>
+            <el-tag v-else-if="row.activity_type === 'referral'" type="primary">推广返利</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="奖励金额" width="100">
@@ -53,14 +56,33 @@
           <template #default="{ row }">
             <el-tag v-if="row.status === 'draft'" type="info">草稿</el-tag>
             <el-tag v-else-if="row.status === 'active'" type="success">进行中</el-tag>
+            <el-tag v-else-if="row.status === 'paused'" type="warning">暂停</el-tag>
             <el-tag v-else type="danger">已结束</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="360">
           <template #default="{ row }">
             <el-button size="small" @click="viewActivity(row)">查看</el-button>
             <el-button size="small" type="primary" @click="editActivity(row)">编辑</el-button>
             <el-button size="small" type="danger" @click="deleteActivity(row)">删除</el-button>
+            <el-button
+              v-if="row.status === 'draft' || row.status === 'paused'"
+              size="small"
+              type="success"
+              @click="changeStatus(row, 'active')"
+            >发布</el-button>
+            <el-button
+              v-if="row.status === 'active'"
+              size="small"
+              type="warning"
+              @click="changeStatus(row, 'paused')"
+            >暂停</el-button>
+            <el-button
+              v-if="row.status === 'draft' || row.status === 'active' || row.status === 'paused'"
+              size="small"
+              type="danger"
+              @click="changeStatus(row, 'ended')"
+            >结束</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -90,8 +112,9 @@
         <el-form-item label="活动类型" required>
           <el-select v-model="activityForm.activity_type">
             <el-option label="积分赠送" value="credit_gift" />
-            <el-option label="充值优惠" value="recharge_discount" />
-            <el-option label="会员优惠" value="membership_discount" />
+            <el-option label="充值优惠" value="recharge_bonus" />
+            <el-option label="优惠券活动" value="coupon" />
+            <el-option label="推广返利" value="referral" />
           </el-select>
         </el-form-item>
         <el-form-item label="奖励类型" required>
@@ -119,6 +142,17 @@
         </el-form-item>
         <el-form-item label="参与人数限制">
           <el-input-number v-model="activityForm.max_participants" :min="0" />
+        </el-form-item>
+        <el-form-item label="活动预算">
+          <el-input-number v-model="activityForm.budget" :min="0" :precision="2" :step="0.01" />
+        </el-form-item>
+        <el-form-item label="目标用户">
+          <el-input
+            v-model="activityForm.target_users"
+            type="textarea"
+            :rows="3"
+            placeholder='JSON，如 {"level":"vip"}，留空表示全部用户'
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -158,6 +192,8 @@ const activityForm = reactive({
   start_time: '',
   end_time: '',
   max_participants: undefined as number | undefined,
+  budget: undefined as number | undefined,
+  target_users: '',
 })
 
 const loadActivities = async () => {
@@ -201,7 +237,12 @@ const viewActivity = (activity: operationApi.Activity) => {
 
 const editActivity = (activity: operationApi.Activity) => {
   dialogTitle.value = '编辑活动'
-  Object.assign(activityForm, activity)
+  Object.assign(activityForm, activity, {
+    budget: activity.budget != null ? Number(activity.budget) : undefined,
+    target_users: activity.target_users
+      ? JSON.stringify(activity.target_users, null, 2)
+      : '',
+  })
   dialogVisible.value = true
 }
 
@@ -220,13 +261,37 @@ const deleteActivity = async (activity: operationApi.Activity) => {
   }
 }
 
+const changeStatus = async (activity: operationApi.Activity, status: string) => {
+  try {
+    await operationApi.updateActivity(activity.id, { status })
+    ElMessage.success('状态更新成功')
+    loadActivities()
+  } catch (error) {
+    ElMessage.error('状态更新失败')
+  }
+}
+
 const saveActivity = async () => {
   try {
+    let target_users: unknown
+    if (activityForm.target_users && activityForm.target_users.trim()) {
+      try {
+        target_users = JSON.parse(activityForm.target_users)
+      } catch (e) {
+        ElMessage.error('目标用户必须是合法 JSON')
+        return
+      }
+    }
+    const payload = {
+      ...activityForm,
+      budget: activityForm.budget ?? undefined,
+      target_users,
+    }
     if (activityForm.id) {
-      await operationApi.updateActivity(activityForm.id, activityForm)
+      await operationApi.updateActivity(activityForm.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await operationApi.createActivity(activityForm)
+      await operationApi.createActivity(payload)
       ElMessage.success('创建成功')
     }
     dialogVisible.value = false
@@ -246,6 +311,8 @@ const resetForm = () => {
   activityForm.start_time = ''
   activityForm.end_time = ''
   activityForm.max_participants = undefined
+  activityForm.budget = undefined
+  activityForm.target_users = ''
 }
 
 onMounted(() => {

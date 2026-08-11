@@ -14,6 +14,8 @@ export interface Activity {
   max_participants: number | null
   current_participants: number
   rules: any
+  budget: number | null
+  target_users: any
   created_at: string
 }
 
@@ -37,6 +39,7 @@ export interface Coupon {
   min_amount: number
   max_discount: number | null
   total_quantity: number
+  per_user_limit: number | null
   used_quantity: number
   valid_from: string
   valid_until: string
@@ -120,6 +123,8 @@ export const createActivity = (data: {
   start_time: string
   end_time: string
   max_participants?: number
+  budget?: number
+  target_users?: any
   rules?: any
 }) => {
   return request.post<Activity>('/v1/operation/activities', data)
@@ -180,6 +185,14 @@ export const updateCoupon = (couponId: number, data: Partial<Coupon>) => {
 
 export const deleteCoupon = (couponId: number) => {
   return request.delete(`/v1/operation/coupons/${couponId}`)
+}
+
+export const issueCoupon = (couponId: number, userIds: number[]) => {
+  return request.post(`/v1/operation/coupons/${couponId}/issue`, { user_ids: userIds })
+}
+
+export const voidCoupon = (couponId: number) => {
+  return request.post(`/v1/operation/coupons/${couponId}/void`)
 }
 
 export const receiveCoupon = (couponId: number) => {

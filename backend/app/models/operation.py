@@ -29,6 +29,7 @@ class CouponType(str, enum.Enum):
     RECHARGE_DISCOUNT = "recharge_discount"  # 充值折扣
     RECHARGE_BONUS = "recharge_bonus"  # 充值赠送
     MEMBERSHIP_DISCOUNT = "membership_discount"  # 会员折扣
+    GENERAL = "general"  # 通用（充值/会员均可使用）
 
 
 class CouponStatus(str, enum.Enum):
@@ -36,6 +37,7 @@ class CouponStatus(str, enum.Enum):
     UNUSED = "unused"  # 未使用
     USED = "used"  # 已使用
     EXPIRED = "expired"  # 已过期
+    VOIDED = "voided"  # 已作废
 
 
 class ReferralStatus(str, enum.Enum):
@@ -164,6 +166,7 @@ class Coupon(Base):
     max_discount = Column(Numeric(10, 2), comment="最大优惠金额")
 
     total_quantity = Column(Integer, comment="总发行量（null表示不限量）")
+    per_user_limit = Column(Integer, comment="每人限领数量（null表示每人限领1张）")
     used_quantity = Column(Integer, default=0, comment="已使用数量")
 
     valid_from = Column(DateTime, nullable=False, comment="有效期开始")

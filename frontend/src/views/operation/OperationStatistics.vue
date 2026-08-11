@@ -257,11 +257,11 @@ const loadStatistics = async () => {
       creationsTrend: data.data.creations_trend || 0
     }
 
-    revenueDetails.value = data.revenue_details || []
-    userDetails.value = data.user_details || []
-    creationDetails.value = data.creation_details || []
+    revenueDetails.value = data.data.revenue_details || []
+    userDetails.value = data.data.user_details || []
+    creationDetails.value = data.data.creation_details || []
 
-    initCharts(data)
+    initCharts(data.data)
   } catch (error) {
     console.log('加载统计数据失败' + error)
     ElMessage.error('加载统计数据失败')

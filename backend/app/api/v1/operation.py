@@ -20,8 +20,8 @@ def _enrich_activity(activity: Any) -> Dict[str, Any]:
 from app.schemas.common import success_response, PaginatedResponse
 from app.schemas.operation import (
     ActivityCreate, ActivityUpdate, ActivityParticipate, ActivityResponse,
-    CouponCreate, CouponUpdate, CouponReceive, CouponUse, CouponResponse,
-    ReferralCodeGenerate, StatisticsQuery
+    CouponCreate, CouponUpdate, CouponReceive, CouponIssue, CouponUse, CouponResponse,
+    ReferralCodeGenerate, ReferralApprove, ReferralApproveBatch, StatisticsQuery
 )
 from app.services.operation_service import OperationService
 from app.utils.deps import get_current_user
@@ -102,64 +102,6 @@ async def update_activity(
     if not result:
         raise HTTPException(status_code=404, detail="活动不存在")
     return success_response(data=_enrich_activity(result))
-
-
-@router.get("/activities")
-async def get_activities(
-    status: Optional[str] = None,
-    activity_type: Optional[str] = None,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """获取活动列表"""
-    service = OperationService(db)
-    activities, total = await service.get_activities(
-        status=status,
-        activity_type=activity_type,
-        skip=skip,
-        limit=limit
-    )
-    return success_response(data=PaginatedResponse(
-        items=[ActivityResponse.model_validate(a) for a in activities],
-        total=total,
-        page=skip // limit + 1 if limit > 0 else 1,
-        page_size=limit,
-        total_pages=(total + limit - 1) // limit if limit > 0 else 0
-    ))
-
-
-@router.get("/activities/{activity_id}")
-async def get_activity(
-    activity_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """获取活动详情"""
-    service = OperationService(db)
-    activity = await service.get_activity(activity_id)
-    if not activity:
-        raise HTTPException(status_code=404, detail="活动不存在")
-    return success_response(data=activity)
-
-
-@router.put("/activities/{activity_id}")
-async def update_activity(
-    activity_id: int,
-    activity: ActivityUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """更新活动（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
-    
-    service = OperationService(db)
-    result = await service.update_activity(activity_id, activity)
-    if not result:
-        raise HTTPException(status_code=404, detail="活动不存在")
-    return success_response(data=result)
 
 
 @router.delete("/activities/{activity_id}")
@@ -324,6 +266,37 @@ async def receive_coupon(
     return success_response(data=result)
 
 
+@router.post("/coupons/{coupon_id}/issue")
+async def issue_coupon(
+    coupon_id: int,
+    issue: CouponIssue,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """发放优惠券给指定用户（管理员，支持批量）"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    service = OperationService(db)
+    issued = await service.issue_coupon(coupon_id, issue.user_ids)
+    return success_response(data={"issued": issued})
+
+
+@router.post("/coupons/{coupon_id}/void")
+async def void_coupon(
+    coupon_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """作废优惠券（管理员）：停用并作废所有未使用的用户券"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    service = OperationService(db)
+    result = await service.void_coupon(coupon_id)
+    return success_response(data={"id": result.id, "is_active": result.is_active})
+
+
 @router.get("/user/coupons")
 async def get_user_coupons(
     status: Optional[str] = None,
@@ -438,6 +411,44 @@ async def get_referral_statistics(
     return success_response(data=statistics)
 
 
+@router.post("/referral/approve-batch")
+async def approve_referrals_batch(
+    approve: ReferralApproveBatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """批量审核通过推荐返利（管理员）"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    service = OperationService(db)
+    settled = await service.approve_referrals_batch(
+        approve.record_ids, approve.reward_amount
+    )
+    return success_response(data={"settled": settled})
+
+
+@router.post("/referral/{record_id}/approve")
+async def approve_referral(
+    record_id: int,
+    approve: Optional[ReferralApprove] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """审核通过一条推荐返利（管理员）"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    service = OperationService(db)
+    reward_amount = approve.reward_amount if approve else None
+    result = await service.approve_referral(record_id, reward_amount)
+    return success_response(data={
+        "record_id": result.id,
+        "status": result.status.value,
+        "reward_amount": float(result.reward_amount or 0),
+    })
+
+
 # ==================== 运营统计 ====================
 
 @router.get("/statistics")
@@ -462,10 +473,10 @@ async def get_dashboard_statistics(
     current_user: User = Depends(get_current_user)
 ):
     """获取仪表盘统计（管理员）"""
-    # from app.models.user import UserRole
-    # if current_user.role != UserRole.ADMIN:
-    #     raise HTTPException(status_code=403, detail="需要管理员权限")
-    #
+    from app.models.user import UserRole
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
     service = OperationService(db)
     statistics = await service.get_dashboard_statistics()
     return success_response(data=statistics)

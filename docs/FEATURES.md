@@ -566,7 +566,7 @@ AI创作者平台是一个集成多种AI创作工具的综合平台，提供AI�
 | PUT | /activities/{id} | 更新活动 | 管理员 |
 | DELETE | /activities/{id} | 删除活动 | 管理员 |
 | POST | /activities/{id}/participate | 参与活动 | 需认证 |
-| GET | /activities/{id}/participants | 获取参与者列表 | 管理员 |
+| GET | /activities/{id}/participations | 获取参与者列表 | 管理员 |
 
 #### 优惠券管理
 | 方法 | 路径 | 说明 | 权限 |
@@ -577,28 +577,27 @@ AI创作者平台是一个集成多种AI创作工具的综合平台，提供AI�
 | PUT | /coupons/{id} | 更新优惠券 | 管理员 |
 | DELETE | /coupons/{id} | 删除优惠券 | 管理员 |
 | POST | /coupons/{id}/issue | 发放优惠券 | 管理员 |
-| POST | /coupons/{id}/claim | 领取优惠券 | 需认证 |
-| GET | /user-coupons | 获取我的优惠券 | 需认证 |
-| POST | /user-coupons/{id}/use | 使用优惠券 | 需认证 |
+| POST | /coupons/{id}/receive | 领取优惠券 | 需认证 |
+| GET | /user/coupons | 获取我的优惠券 | 需认证 |
+| POST | /coupons/use | 使用优惠券（按码） | 需认证 |
+| POST | /coupons/calculate | 试算优惠券折扣 | 需认证 |
+| POST | /coupons/{id}/void | 作废优惠券 | 管理员 |
 
 #### 推广返利
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| POST | /referral/generate-code | 生成推荐码 | 需认证 |
-| GET | /referral/my-code | 获取我的推荐码 | 需认证 |
+| POST | /referral/generate | 生成推荐码 | 需认证 |
+| GET | /referral/code | 获取我的推荐码 | 需认证 |
 | GET | /referral/records | 获取推广记录 | 需认证 |
-| GET | /referral/stats | 获取推广统计 | 需认证 |
+| GET | /referral/statistics | 获取推广统计 | 需认证 |
 | POST | /referral/{id}/approve | 审核返利 | 管理员 |
+| POST | /referral/approve-batch | 批量审核返利 | 管理员 |
 
 #### 数据统计
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| GET | /statistics/overview | 获取总览统计 | 管理员 |
-| GET | /statistics/users | 获取用户统计 | 管理员 |
-| GET | /statistics/revenue | 获取收入统计 | 管理员 |
-| GET | /statistics/consumption | 获取消费统计 | 管理员 |
-| GET | /statistics/activities | 获取活动统计 | 管理员 |
-| GET | /statistics/referrals | 获取推广统计 | 管理员 |
+| GET | /statistics | 运营统计聚合（含趋势/留存/转化/分布） | 管理员 |
+| GET | /dashboard | 仪表盘统计 | 管理员 |
 
 ---
 

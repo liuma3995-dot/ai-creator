@@ -18,7 +18,7 @@ from app.models.credit import CreditTransaction, TransactionType, PaymentStatus,
 from app.schemas.operation import (
     ActivityCreate, ActivityUpdate, CouponCreate, CouponUpdate
 )
-from app.core.exceptions import BusinessException
+from app.core.exceptions import BusinessException, NotFoundException
 
 
 class ActivityService:
@@ -58,7 +58,7 @@ class ActivityService:
         """更新活动"""
         activity = db.query(Activity).filter(Activity.id == activity_id).first()
         if not activity:
-            raise BusinessException("活动不存在")
+            raise NotFoundException("活动不存在")
 
         update_data = activity_data.model_dump(exclude_unset=True)
 
@@ -142,7 +142,11 @@ class ActivityService:
         if activity.activity_type == ActivityType.CREDIT_GIFT:
             # 积分赠送
             reward_type = "credits"
-            reward_amount = activity.rules.get("credits", 0) if activity.rules else 0
+            # 兼容两种存储：rules.reward_amount（前端表单合并）与 rules.credits（旧格式）
+            reward_amount = (
+                activity.rules.get("reward_amount", activity.rules.get("credits", 0))
+                if activity.rules else 0
+            )
             
             # 增加用户积分
             user = db.query(User).filter(User.id == user_id).first()
@@ -204,7 +208,7 @@ class CouponService:
         """更新优惠券"""
         coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
         if not coupon:
-            raise BusinessException("优惠券不存在")
+            raise NotFoundException("优惠券不存在")
         
         update_data = coupon_data.model_dump(exclude_unset=True)
         for key, value in update_data.items():
@@ -253,12 +257,15 @@ class CouponService:
         if now < coupon.valid_from or now > coupon.valid_until:
             raise BusinessException("不在领取有效期内")
 
-        # 检查是否已领取
-        existing = db.query(UserCoupon).filter(
+        # 检查领取数量：配置了每人限领则按数量限制，否则每人限领 1 张
+        existing_count = db.query(UserCoupon).filter(
             UserCoupon.coupon_id == coupon_id,
             UserCoupon.user_id == user_id
-        ).first()
-        if existing:
+        ).count()
+        if coupon.per_user_limit:
+            if existing_count >= coupon.per_user_limit:
+                raise BusinessException("已达每人限领数量")
+        elif existing_count > 0:
             raise BusinessException("已领取过该优惠券")
 
         # 检查领取数量限制：按已创建的 UserCoupon 行数 vs total_quantity
@@ -317,6 +324,71 @@ class CouponService:
             "discount_amount": float(discount),
             "final_amount": float(amount - discount),
         }
+
+    @staticmethod
+    def calculate_order_discount(
+        db: Session,
+        coupon_code: str,
+        order_amount: Decimal,
+        order_type: str,
+    ) -> Decimal:
+        """校验优惠券并计算订单折扣（不写库）"""
+        coupon = db.query(Coupon).filter(
+            Coupon.code == coupon_code,
+            Coupon.is_active == True,
+        ).first()
+        if not coupon:
+            raise BusinessException("优惠券不存在或未启用")
+
+        allowed_types = {
+            "recharge": (
+                CouponType.RECHARGE_DISCOUNT,
+                CouponType.RECHARGE_BONUS,
+                CouponType.GENERAL,
+            ),
+            "membership": (
+                CouponType.MEMBERSHIP_DISCOUNT,
+                CouponType.GENERAL,
+            ),
+        }
+        if coupon.coupon_type not in allowed_types.get(order_type, ()):
+            raise BusinessException("该优惠券类型不适用于此订单")
+
+        now = datetime.now()
+        if now < coupon.valid_from or now > coupon.valid_until:
+            raise BusinessException("优惠券不在有效期内")
+
+        amount = Decimal(str(order_amount))
+        if coupon.min_amount and amount < coupon.min_amount:
+            raise BusinessException(f"订单金额需满{coupon.min_amount}元")
+
+        if coupon.discount_type == "percent":
+            discount = amount * (coupon.discount_value / Decimal("100"))
+            if coupon.max_discount:
+                discount = min(discount, coupon.max_discount)
+        elif coupon.discount_type == "fixed":
+            discount = min(coupon.discount_value, amount)
+        else:
+            discount = Decimal("0")
+        return discount
+
+    @staticmethod
+    def mark_order_coupon_used(
+        db: Session,
+        user_id: int,
+        coupon_code: str,
+        order_id: int,
+    ) -> None:
+        """订单创建后把优惠券标记为已使用并关联订单"""
+        coupon = db.query(Coupon).filter(Coupon.code == coupon_code).first()
+        if coupon:
+            db.add(UserCoupon(
+                user_id=user_id,
+                coupon_id=coupon.id,
+                status=CouponStatus.USED,
+                used_at=datetime.now(),
+                order_id=order_id,
+            ))
 
 
 class ReferralService:
@@ -389,7 +461,7 @@ class ReferralService:
         # 记录积分交易
         transaction = CreditTransaction(
             user_id=record.referrer_id,
-            transaction_type=TransactionType.REFERRAL,
+            transaction_type=TransactionType.REWARD,
             amount=int(reward_amount * 100),
             balance_before=referrer.credits - int(reward_amount * 100),
             balance_after=referrer.credits,
@@ -471,6 +543,45 @@ class OperationService:
             self.db.commit()
             return True
         return False
+
+    async def issue_coupon(self, coupon_id: int, user_ids: List[int]) -> int:
+        """管理员向指定用户发放优惠券（已领取过则跳过）"""
+        coupon = self.db.query(Coupon).filter(Coupon.id == coupon_id).first()
+        if not coupon:
+            raise NotFoundException("优惠券不存在")
+
+        issued = 0
+        for uid in user_ids:
+            existing = self.db.query(UserCoupon).filter(
+                UserCoupon.coupon_id == coupon_id,
+                UserCoupon.user_id == uid,
+            ).first()
+            if existing:
+                continue
+            self.db.add(UserCoupon(
+                user_id=uid,
+                coupon_id=coupon_id,
+                status=CouponStatus.UNUSED,
+                received_at=datetime.now(),
+            ))
+            issued += 1
+        self.db.commit()
+        return issued
+
+    async def void_coupon(self, coupon_id: int) -> Coupon:
+        """管理员作废优惠券：停用券本身，并把所有未使用的用户券置为已作废"""
+        coupon = self.db.query(Coupon).filter(Coupon.id == coupon_id).first()
+        if not coupon:
+            raise NotFoundException("优惠券不存在")
+
+        coupon.is_active = False
+        self.db.query(UserCoupon).filter(
+            UserCoupon.coupon_id == coupon_id,
+            UserCoupon.status == CouponStatus.UNUSED,
+        ).update({UserCoupon.status: CouponStatus.VOIDED})
+        self.db.commit()
+        self.db.refresh(coupon)
+        return coupon
     
     async def receive_coupon(self, coupon_id: int, user_id: int, receive: Any) -> UserCoupon:
         return self.coupon_service.receive_coupon(self.db, coupon_id, user_id)
@@ -615,6 +726,31 @@ class OperationService:
             "referral_code": code,
             "referral_url": f"http://localhost:5173/register?ref={code}",
         }
+
+    async def approve_referral(
+        self,
+        record_id: int,
+        reward_amount: Optional[Decimal] = None,
+    ) -> ReferralRecord:
+        """管理员审核通过一条返利记录"""
+        amount = reward_amount if reward_amount is not None else Decimal("10")
+        return self.referral_service.complete_referral(self.db, record_id, amount)
+
+    async def approve_referrals_batch(
+        self,
+        record_ids: List[int],
+        reward_amount: Optional[Decimal] = None,
+    ) -> int:
+        """管理员批量审核返利（跳过非待发放记录）"""
+        amount = reward_amount if reward_amount is not None else Decimal("10")
+        settled = 0
+        for rid in record_ids:
+            try:
+                self.referral_service.complete_referral(self.db, rid, amount)
+                settled += 1
+            except BusinessException:
+                continue
+        return settled
     
     # Statistics methods
     async def get_statistics(self, start_date: Optional[datetime] = None, 
@@ -697,10 +833,173 @@ class OperationService:
             ReferralRecord.created_at <= end_date,
             ReferralRecord.status == ReferralStatus.SETTLED
         ).scalar() or Decimal('0')
+
+        # ===== 日期维度趋势（供前端图表与明细） =====
+        from app.models.creation import Creation
+        from sqlalchemy import func as sa_func
+
+        def _day_key(v):
+            return v.strftime('%Y-%m-%d') if hasattr(v, 'strftime') else str(v)
+
+        recharge_by_day = dict(
+            (_day_key(r.d), float(r.amt or 0))
+            for r in self.db.query(
+                sa_func.date(RechargeOrder.created_at).label('d'),
+                sa_func.coalesce(sa_func.sum(RechargeOrder.amount), 0).label('amt'),
+            ).filter(
+                RechargeOrder.created_at >= start_date,
+                RechargeOrder.created_at <= end_date,
+                RechargeOrder.payment_status == PaymentStatus.PAID,
+            ).group_by(sa_func.date(RechargeOrder.created_at)).all()
+        )
+        membership_by_day = dict(
+            (_day_key(m.d), float(m.amt or 0))
+            for m in self.db.query(
+                sa_func.date(MembershipOrder.created_at).label('d'),
+                sa_func.coalesce(sa_func.sum(MembershipOrder.amount), 0).label('amt'),
+            ).filter(
+                MembershipOrder.created_at >= start_date,
+                MembershipOrder.created_at <= end_date,
+                MembershipOrder.payment_status == PaymentStatus.PAID,
+            ).group_by(sa_func.date(MembershipOrder.created_at)).all()
+        )
+        users_by_day = dict(
+            (_day_key(u.d), u.c)
+            for u in self.db.query(
+                sa_func.date(User.created_at).label('d'),
+                sa_func.count(User.id).label('c'),
+            ).filter(
+                User.created_at >= start_date,
+                User.created_at <= end_date,
+            ).group_by(sa_func.date(User.created_at)).all()
+        )
+        creations_by_day = dict(
+            (_day_key(cr.d), cr.c)
+            for cr in self.db.query(
+                sa_func.date(Creation.created_at).label('d'),
+                sa_func.count(Creation.id).label('c'),
+            ).filter(
+                Creation.created_at >= start_date,
+                Creation.created_at <= end_date,
+            ).group_by(sa_func.date(Creation.created_at)).all()
+        )
+        active_users_by_day = dict(
+            (_day_key(d), c)
+            for d, c in self.db.query(
+                sa_func.date(Creation.created_at).label('d'),
+                sa_func.count(sa_func.distinct(Creation.user_id)).label('c'),
+            ).filter(
+                Creation.created_at >= start_date,
+                Creation.created_at <= end_date,
+            ).group_by(sa_func.date(Creation.created_at)).all()
+        )
+        memberships_count_by_day = dict(
+            (_day_key(m.d), m.c)
+            for m in self.db.query(
+                sa_func.date(MembershipOrder.created_at).label('d'),
+                sa_func.count(MembershipOrder.id).label('c'),
+            ).filter(
+                MembershipOrder.created_at >= start_date,
+                MembershipOrder.created_at <= end_date,
+                MembershipOrder.payment_status == PaymentStatus.PAID,
+            ).group_by(sa_func.date(MembershipOrder.created_at)).all()
+        )
+
+        # 按日期补齐连续序列（含两端）
+        dates = []
+        current = start_date.date() if hasattr(start_date, 'date') else start_date
+        end = end_date.date() if hasattr(end_date, 'date') else end_date
+        while current <= end:
+            dates.append(current)
+            current += timedelta(days=1)
+        date_strs = [d.strftime('%Y-%m-%d') for d in dates]
+
+        revenue_trend = {
+            "dates": date_strs,
+            "amounts": [
+                round(recharge_by_day.get(d, 0) + membership_by_day.get(d, 0), 2)
+                for d in date_strs
+            ],
+        }
+        users_trend = {
+            "dates": date_strs,
+            "counts": [users_by_day.get(d, 0) for d in date_strs],
+        }
+        members_trend = {
+            "dates": date_strs,
+            "counts": [memberships_count_by_day.get(d, 0) for d in date_strs],
+        }
+        creations_trend = {
+            "dates": date_strs,
+            "counts": [creations_by_day.get(d, 0) for d in date_strs],
+        }
+        revenue_details = [
+            {
+                "date": d,
+                "recharge_amount": recharge_by_day.get(d, 0),
+                "membership_amount": membership_by_day.get(d, 0),
+            }
+            for d in date_strs
+        ]
+        user_details = [
+            {
+                "date": d,
+                "new_users": users_by_day.get(d, 0),
+                "active_users": active_users_by_day.get(d, 0),
+            }
+            for d in date_strs
+        ]
+        creation_details = [
+            {"date": d, "count": creations_by_day.get(d, 0)}
+            for d in date_strs
+        ]
+        creation_distribution = [
+            {
+                "name": getattr(t, "value", str(t)),
+                "value": c,
+            }
+            for t, c in self.db.query(
+                Creation.creation_type,
+                sa_func.count(Creation.id),
+            ).filter(
+                Creation.created_at >= start_date,
+                Creation.created_at <= end_date,
+            ).group_by(Creation.creation_type).all()
+        ]
+        payment_distribution = [
+            {
+                "name": str(p or "unknown"),
+                "value": c,
+            }
+            for p, c in self.db.query(
+                RechargeOrder.payment_method,
+                sa_func.count(RechargeOrder.id),
+            ).filter(
+                RechargeOrder.created_at >= start_date,
+                RechargeOrder.created_at <= end_date,
+                RechargeOrder.payment_status == PaymentStatus.PAID,
+            ).group_by(RechargeOrder.payment_method).all()
+        ]
+
+        # 留存率与转化率（口径：窗口内活跃/新增、已结算/总推荐）
+        total_revenue = float(recharge_stats.amount or 0) + float(membership_stats.amount or 0)
+        total_members = self.db.query(User).filter(User.is_member == True).count()
+        settled_referrals = self.db.query(ReferralRecord).filter(
+            ReferralRecord.created_at >= start_date,
+            ReferralRecord.created_at <= end_date,
+            ReferralRecord.status == ReferralStatus.SETTLED,
+        ).count()
+        user_retention_rate = round(active_users / new_users * 100, 1) if new_users else 0
+        referral_conversion_rate = round(settled_referrals / referral_count * 100, 1) if referral_count else 0
         
         return {
             "new_users": new_users,
             "active_users": active_users,
+            "total_members": total_members,
+            "total_creations": generation_count,
+            "total_revenue": total_revenue,
+            "user_retention_rate": user_retention_rate,
+            "referral_conversion_rate": referral_conversion_rate,
             "recharge_amount": float(recharge_stats.amount or 0),
             "recharge_count": recharge_stats.count or 0,
             "membership_amount": float(membership_stats.amount or 0),
@@ -710,7 +1009,21 @@ class OperationService:
             "activity_participants": activity_participants,
             "coupon_used": coupon_used,
             "referral_count": referral_count,
-            "referral_rewards": float(referral_rewards)
+            "referral_rewards": float(referral_rewards),
+            "revenue_trend": revenue_trend,
+            "users_trend": users_trend,
+            "user_trend": {
+                "dates": date_strs,
+                "new_users": [users_by_day.get(d, 0) for d in date_strs],
+                "active_users": [active_users_by_day.get(d, 0) for d in date_strs],
+            },
+            "members_trend": members_trend,
+            "creations_trend": creations_trend,
+            "revenue_details": revenue_details,
+            "user_details": user_details,
+            "creation_details": creation_details,
+            "creation_distribution": creation_distribution,
+            "payment_distribution": payment_distribution,
         }
     
     async def get_user_statistics(self, user_id: int, start_date: Optional[datetime] = None, 
