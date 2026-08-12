@@ -215,7 +215,12 @@ class TestCouponAPI:
         assert second.status_code == 400
 
     def test_use_coupon(self, client, db_session, auth_headers):
-        _make_coupon(db_session, code="USEAPI10", discount_type="percent", discount_value=10)
+        coupon = _make_coupon(db_session, code="USEAPI10", discount_type="percent", discount_value=10)
+        recv = client.post(
+            f"/api/v1/operation/coupons/{coupon.id}/receive",
+            headers=auth_headers,
+        )
+        assert recv.status_code == 200
         r = client.post(
             "/api/v1/operation/coupons/use",
             json={"coupon_code": "USEAPI10", "order_type": "recharge", "amount": 100},
@@ -226,6 +231,15 @@ class TestCouponAPI:
         assert data["discount_amount"] == 10.0
         assert data["final_amount"] == 90.0
 
+    def test_use_coupon_not_owned(self, client, db_session, auth_headers):
+        _make_coupon(db_session, code="USEAPI11", discount_type="percent", discount_value=10)
+        r = client.post(
+            "/api/v1/operation/coupons/use",
+            json={"coupon_code": "USEAPI11", "order_type": "recharge", "amount": 100},
+            headers=auth_headers,
+        )
+        assert r.status_code == 400
+
     def test_use_coupon_not_found(self, client, auth_headers):
         r = client.post(
             "/api/v1/operation/coupons/use",
@@ -235,7 +249,12 @@ class TestCouponAPI:
         assert r.status_code == 400
 
     def test_calculate_coupon_discount(self, client, db_session, auth_headers):
-        _make_coupon(db_session, code="CALCAPI20", discount_type="percent", discount_value=20)
+        coupon = _make_coupon(db_session, code="CALCAPI20", discount_type="percent", discount_value=20)
+        recv = client.post(
+            f"/api/v1/operation/coupons/{coupon.id}/receive",
+            headers=auth_headers,
+        )
+        assert recv.status_code == 200
         r = client.post(
             "/api/v1/operation/coupons/calculate",
             json={"coupon_code": "CALCAPI20", "original_amount": 100},
@@ -252,7 +271,12 @@ class TestCouponAPI:
     def test_recharge_order_with_coupon_discount(self, client, db_session, auth_headers):
         from app.models.operation import CouponStatus, UserCoupon
 
-        _make_coupon(db_session, code="ORDER10", discount_type="percent", discount_value=10)
+        coupon = _make_coupon(db_session, code="ORDER10", discount_type="percent", discount_value=10)
+        recv = client.post(
+            f"/api/v1/operation/coupons/{coupon.id}/receive",
+            headers=auth_headers,
+        )
+        assert recv.status_code == 200
         r = client.post(
             "/api/v1/credit/recharge",
             json={"price_id": 1, "payment_method": "alipay", "coupon_code": "ORDER10"},
@@ -269,13 +293,18 @@ class TestCouponAPI:
         assert uc.status == CouponStatus.USED
 
     def test_membership_order_with_coupon_discount(self, client, db_session, auth_headers):
-        _make_coupon(
+        coupon = _make_coupon(
             db_session,
             code="MEMBER10",
             coupon_type=CouponType.MEMBERSHIP_DISCOUNT,
             discount_type="percent",
             discount_value=10,
         )
+        recv = client.post(
+            f"/api/v1/operation/coupons/{coupon.id}/receive",
+            headers=auth_headers,
+        )
+        assert recv.status_code == 200
         r = client.post(
             "/api/v1/credit/membership",
             json={"price_id": 1, "payment_method": "alipay", "coupon_code": "MEMBER10"},
@@ -353,13 +382,16 @@ class TestCouponAPI:
     def test_create_general_coupon_applies_to_both_orders(
         self, client, db_session, admin_headers, auth_headers
     ):
-        _make_coupon(
+        coupon = _make_coupon(
             db_session,
             code="GENERAL10",
             coupon_type=CouponType.GENERAL,
             discount_type="percent",
             discount_value=10,
+            per_user_limit=2,
         )
+        recv1 = client.post(f"/api/v1/operation/coupons/{coupon.id}/receive", headers=auth_headers)
+        assert recv1.status_code == 200
         recharge = client.post(
             "/api/v1/credit/recharge",
             json={"price_id": 1, "payment_method": "alipay", "coupon_code": "GENERAL10"},
@@ -367,6 +399,9 @@ class TestCouponAPI:
         )
         assert recharge.status_code == 200
         assert float(recharge.json()["data"]["amount"]) == 9.0
+
+        recv2 = client.post(f"/api/v1/operation/coupons/{coupon.id}/receive", headers=auth_headers)
+        assert recv2.status_code == 200
 
         membership = client.post(
             "/api/v1/credit/membership",

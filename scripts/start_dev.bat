@@ -41,31 +41,77 @@ if not exist "%ROOT%\backend\.env" (
     copy "%ROOT%\backend\.env.example" "%ROOT%\backend\.env" >nul
 )
 
-REM Start backend, port 8000 (health check first; restart if stale)
-curl -s -o nul --max-time 3 http://localhost:8000/docs
-if errorlevel 1 (
+REM ------------------------------------------------------------------
+REM Step 1: Backend - strict health check (HTTP 200 on /health).
+REM A stale or broken process on port 8000 is killed and restarted.
+REM ------------------------------------------------------------------
+set "AIC_BACK_HTTP="
+for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:8000/health') do set "AIC_BACK_HTTP=%%c"
+if "%AIC_BACK_HTTP%"=="200" (
+    echo [1/2] Backend already healthy on port 8000.
+) else (
     for /f "tokens=5" %%p in ('netstat -ano ^| findstr /C:":8000 " ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
     echo [1/2] Starting backend window ai-creator-backend...
     start "ai-creator-backend" cmd /k "cd /d %ROOT%\backend && %PY% run.py"
-) else (
-    echo [1/2] Skipped: backend already responding on port 8000.
 )
 
-REM Start frontend, port 5173 (health check first; restart if stale)
-curl -s -o nul --max-time 3 http://localhost:5173/
-if errorlevel 1 (
+REM Wait until the backend /health returns HTTP 200 (max ~60s).
+REM The frontend is intentionally NOT started before the backend is ready,
+REM otherwise every API call through the Vite proxy returns HTTP 500 and
+REM the app shows "server internal error" when the page is opened early.
+echo [wait] Waiting for backend API on port 8000 ...
+set "AIC_BACK_WAIT=0"
+:wait_backend
+set "AIC_BACK_HTTP="
+for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:8000/health') do set "AIC_BACK_HTTP=%%c"
+if "%AIC_BACK_HTTP%"=="200" goto backend_ready
+set /a AIC_BACK_WAIT+=1
+if %AIC_BACK_WAIT% geq 30 (
+    echo [ERROR] Backend did not become healthy within 60s.
+    echo         Check the ai-creator-backend window for errors.
+    echo         After fixing, close that window and rerun this script.
+    pause
+    exit /b 1
+)
+ping -n 2 127.0.0.1 >nul
+goto wait_backend
+:backend_ready
+echo [OK] Backend API healthy on http://localhost:8000/health
+echo.
+
+REM ------------------------------------------------------------------
+REM Step 2: Frontend - strict health check (HTTP 200 on the root page).
+REM ------------------------------------------------------------------
+set "AIC_FRONT_HTTP="
+for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:5173/') do set "AIC_FRONT_HTTP=%%c"
+if "%AIC_FRONT_HTTP%"=="200" (
+    echo [2/2] Frontend already responding on port 5173.
+) else (
     for /f "tokens=5" %%p in ('netstat -ano ^| findstr /C:":5173 " ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
     echo [2/2] Starting frontend Vite window ai-creator-frontend...
     start "ai-creator-frontend" cmd /k "cd /d %ROOT%\frontend && npm.cmd run dev -- --host 0.0.0.0"
-) else (
-    echo [2/2] Skipped: frontend already responding on port 5173.
 )
 
+REM Wait until the frontend responds with HTTP 200 (max ~30s).
+echo [wait] Waiting for frontend Vite on port 5173 ...
+set "AIC_FRONT_WAIT=0"
+:wait_front
+set "AIC_FRONT_HTTP="
+for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:5173/') do set "AIC_FRONT_HTTP=%%c"
+if "%AIC_FRONT_HTTP%"=="200" goto front_ready
+set /a AIC_FRONT_WAIT+=1
+if %AIC_FRONT_WAIT% geq 15 (
+    echo [ERROR] Frontend did not become ready within 30s.
+    echo         Check the ai-creator-frontend window for errors.
+    pause
+    exit /b 1
+)
+ping -n 2 127.0.0.1 >nul
+goto wait_front
+:front_ready
+echo [OK] Frontend Vite ready on http://localhost:5173
 echo.
-echo Waiting for services to start, about 15 seconds...
-ping -n 16 127.0.0.1 >nul
 
-echo.
 echo ==========================================================
 echo   Service status
 echo ==========================================================
@@ -100,11 +146,12 @@ if defined LAN_IP (
 )
 
 echo.
+echo   [tips] Both services are confirmed ready above; open the browser now.
 echo   [tips] Two CMD windows opened for backend and frontend live logs.
 echo   [tips] Close a window to stop that service.
+echo   [tips] If the page still shows "server internal error", the backend
+echo          window may have crashed - check it, then rerun this script.
 echo   [tips] MySQL and Memurai run as Windows services, no manual start needed.
 echo   [tips] Mobile: phone and PC must be on the same Wi-Fi; if blocked, allow ports 5173/8000 in Windows Firewall (inbound).
-echo   [tips] Wait for the status lines to show HTTP 200 before opening the browser.
-echo   [tips] If any status shows HTTP 000, check the matching window title for errors.
 echo.
 if /i not "%1"=="nopause" pause

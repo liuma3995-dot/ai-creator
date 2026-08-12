@@ -1,7 +1,7 @@
 """
 运营功能服务
 """
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_, or_
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -10,7 +10,7 @@ import secrets
 import string
 
 from app.models.operation import (
-    Activity, ActivityParticipation, Coupon, UserCoupon, ReferralRecord, OperationStatistics,
+    Activity, ActivityParticipation, Coupon, UserCoupon, ReferralRecord, ReferralRule, OperationStatistics,
     ActivityType, ActivityStatus, CouponType, CouponStatus, ReferralStatus
 )
 from app.models.user import User
@@ -43,6 +43,10 @@ class ActivityService:
     def create_activity(db: Session, activity_data: ActivityCreate, creator_id: int) -> Activity:
         """创建活动"""
         data = ActivityService._merge_reward_into_data(activity_data.model_dump())
+        if data.get('activity_type') == ActivityType.COUPON:
+            rules = data.get('rules') or {}
+            if not rules.get('coupon_code') and not rules.get('coupon_id'):
+                raise BusinessException("优惠券活动必须关联一张优惠券")
         activity = Activity(
             **data,
             created_by=creator_id,
@@ -75,6 +79,11 @@ class ActivityService:
 
         for key, value in update_data.items():
             setattr(activity, key, value)
+
+        if activity.activity_type == ActivityType.COUPON:
+            rules = activity.rules or {}
+            if not rules.get('coupon_code') and not rules.get('coupon_id'):
+                raise BusinessException("优惠券活动必须关联一张优惠券")
 
         db.commit()
         db.refresh(activity)
@@ -164,6 +173,26 @@ class ActivityService:
                 related_type="activity"
             )
             db.add(transaction)
+        elif activity.activity_type == ActivityType.COUPON:
+            # 优惠券活动：自动发放活动关联的优惠券（rules.coupon_code / coupon_id）
+            rules = activity.rules or {}
+            coupon = None
+            coupon_id = rules.get("coupon_id")
+            coupon_code = rules.get("coupon_code") or rules.get("code")
+            if coupon_id:
+                coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
+            elif coupon_code:
+                coupon = db.query(Coupon).filter(Coupon.code == coupon_code).first()
+            if coupon and coupon.is_active:
+                reward_type = "coupon"
+                reward_data = {"coupon_id": coupon.id, "coupon_code": coupon.code}
+                reward_amount = int(coupon.discount_value or 0)
+                db.add(UserCoupon(
+                    user_id=user_id,
+                    coupon_id=coupon.id,
+                    status=CouponStatus.UNUSED,
+                    received_at=datetime.now(),
+                ))
         
         # 创建参与记录
         participation = ActivityParticipation(
@@ -328,17 +357,26 @@ class CouponService:
     @staticmethod
     def calculate_order_discount(
         db: Session,
+        user_id: int,
         coupon_code: str,
         order_amount: Decimal,
         order_type: str,
     ) -> Decimal:
-        """校验优惠券并计算订单折扣（不写库）"""
+        """校验优惠券（用户须持有且未使用）并计算订单折扣（不写库）"""
         coupon = db.query(Coupon).filter(
             Coupon.code == coupon_code,
             Coupon.is_active == True,
         ).first()
         if not coupon:
             raise BusinessException("优惠券不存在或未启用")
+
+        user_coupon = db.query(UserCoupon).filter(
+            UserCoupon.user_id == user_id,
+            UserCoupon.coupon_id == coupon.id,
+            UserCoupon.status == CouponStatus.UNUSED,
+        ).first()
+        if not user_coupon:
+            raise BusinessException("未持有该优惠券或已被使用")
 
         allowed_types = {
             "recharge": (
@@ -379,16 +417,20 @@ class CouponService:
         coupon_code: str,
         order_id: int,
     ) -> None:
-        """订单创建后把优惠券标记为已使用并关联订单"""
+        """订单创建后，把用户本人持有的未使用券标记为已使用并关联订单（防重复用券）"""
         coupon = db.query(Coupon).filter(Coupon.code == coupon_code).first()
-        if coupon:
-            db.add(UserCoupon(
-                user_id=user_id,
-                coupon_id=coupon.id,
-                status=CouponStatus.USED,
-                used_at=datetime.now(),
-                order_id=order_id,
-            ))
+        if not coupon:
+            raise BusinessException("优惠券不存在")
+        user_coupon = db.query(UserCoupon).filter(
+            UserCoupon.user_id == user_id,
+            UserCoupon.coupon_id == coupon.id,
+            UserCoupon.status == CouponStatus.UNUSED,
+        ).first()
+        if not user_coupon:
+            raise BusinessException("未持有该优惠券或已被使用")
+        user_coupon.status = CouponStatus.USED
+        user_coupon.used_at = datetime.now()
+        user_coupon.order_id = order_id
 
 
 class ReferralService:
@@ -473,12 +515,125 @@ class ReferralService:
         
         # 更新推荐记录
         record.status = ReferralStatus.SETTLED
+        record.reward_type = "credits"
         record.reward_amount = reward_amount
+        record.reward_credits = int(reward_amount * 100)
         record.settled_at = datetime.now()
         
         db.commit()
         db.refresh(record)
         
+        return record
+
+    @staticmethod
+    def settle_referral_on_order(
+        db: Session,
+        referee_id: int,
+        order_type: str,
+        order_amount: Decimal,
+    ) -> Optional[ReferralRecord]:
+        """被推荐人完成首次充值/购买会员后自动结算返利（每条记录仅结算一次）"""
+        record = db.query(ReferralRecord).filter(
+            ReferralRecord.referee_id == referee_id,
+            ReferralRecord.status == ReferralStatus.PENDING,
+        ).first()
+        if not record:
+            return None
+
+        rule = db.query(ReferralRule).first()
+        if not rule or not rule.is_enabled:
+            return None
+
+        amount = Decimal(str(order_amount))
+        record.trigger_event = "first_recharge" if order_type == "recharge" else "membership"
+        record.trigger_amount = amount
+
+        if rule.reward_type == "coupon":
+            if not rule.coupon_id:
+                return None
+            coupon = db.query(Coupon).filter(
+                Coupon.id == rule.coupon_id,
+                Coupon.is_active == True,
+            ).first()
+            if not coupon:
+                return None
+            db.add(UserCoupon(
+                user_id=record.referrer_id,
+                coupon_id=coupon.id,
+                status=CouponStatus.UNUSED,
+                received_at=datetime.now(),
+            ))
+            record.reward_type = "coupon"
+            record.reward_amount = coupon.discount_value
+            record.coupon_id = coupon.id
+            record.reward_data = {"coupon_code": coupon.code}
+        else:
+            rate = Decimal(str(rule.credits_rate or "0.10"))
+            credits = int(amount * rate * 100)
+            if credits <= 0:
+                return None
+            referrer = db.query(User).filter(User.id == record.referrer_id).first()
+            if not referrer:
+                return None
+            referrer.credits += credits
+            db.add(CreditTransaction(
+                user_id=record.referrer_id,
+                transaction_type=TransactionType.REWARD,
+                amount=credits,
+                balance_before=referrer.credits - credits,
+                balance_after=referrer.credits,
+                description="推广返利",
+                related_id=record.id,
+                related_type="referral",
+            ))
+            record.reward_type = "credits"
+            record.reward_amount = amount * rate
+            record.reward_credits = credits
+
+        record.status = ReferralStatus.SETTLED
+        record.settled_at = datetime.now()
+        db.commit()
+        db.refresh(record)
+        return record
+
+    @staticmethod
+    def settle_referral_on_register(
+        db: Session,
+        record: ReferralRecord,
+    ) -> Optional[ReferralRecord]:
+        """邀请注册返利：规则为固定积分时，注册即向推荐人发放积分并结算"""
+        if record.status != ReferralStatus.PENDING:
+            return None
+        rule = db.query(ReferralRule).first()
+        if not rule or not rule.is_enabled:
+            return None
+        if rule.reward_type != "register_credits":
+            return None
+
+        credits = int(rule.register_credits or 0)
+        if credits <= 0:
+            return None
+        referrer = db.query(User).filter(User.id == record.referrer_id).first()
+        if not referrer:
+            return None
+        referrer.credits += credits
+        db.add(CreditTransaction(
+            user_id=record.referrer_id,
+            transaction_type=TransactionType.REWARD,
+            amount=credits,
+            balance_before=referrer.credits - credits,
+            balance_after=referrer.credits,
+            description="邀请注册返利",
+            related_id=record.id,
+            related_type="referral",
+        ))
+        record.reward_type = "register_credits"
+        record.reward_credits = credits
+        record.reward_amount = None
+        record.status = ReferralStatus.SETTLED
+        record.settled_at = datetime.now()
+        db.commit()
+        db.refresh(record)
         return record
 
 
@@ -592,7 +747,9 @@ class OperationService:
         if status:
             query = query.filter(UserCoupon.status == status)
         total = query.count()
-        coupons = query.offset(skip).limit(limit).all()
+        coupons = query.options(
+            joinedload(UserCoupon.coupon)
+        ).offset(skip).limit(limit).all()
         return coupons, total
     
     async def calculate_coupon_discount(self, user_id: int, coupon_code: str, original_amount: Decimal) -> Dict[str, Any]:
@@ -604,7 +761,19 @@ class OperationService:
         if not coupon:
             raise BusinessException("优惠券不存在或未启用")
 
-        amount = Decimal(str(original_amount))
+        # 仅允许试算用户本人已领取且未使用的券
+        user_coupon = self.db.query(UserCoupon).filter(
+            UserCoupon.user_id == user_id,
+            UserCoupon.coupon_id == coupon.id,
+            UserCoupon.status == CouponStatus.UNUSED,
+        ).first()
+        if not user_coupon:
+            raise BusinessException("未持有该优惠券或已被使用")
+
+        try:
+            amount = Decimal(str(original_amount))
+        except Exception:
+            raise BusinessException("订单金额格式不正确")
         if coupon.discount_type == 'percent':
             discount_amount = amount * (coupon.discount_value / Decimal('100'))
             if coupon.max_discount:
@@ -640,13 +809,28 @@ class OperationService:
         ):
             raise BusinessException("该优惠券类型暂不支持直接使用")
 
-        user_coupon = UserCoupon(
-            user_id=user_id,
-            coupon_id=coupon.id,
-            status=CouponStatus.USED,
-            used_at=datetime.now(),
-        )
-        self.db.add(user_coupon)
+        now = datetime.now()
+        if now < coupon.valid_from or now > coupon.valid_until:
+            raise BusinessException("不在优惠券有效期内")
+
+        # 仅允许使用用户本人已领取且未使用的券，防止知道券码即可盗用
+        user_coupon = self.db.query(UserCoupon).filter(
+            UserCoupon.user_id == user_id,
+            UserCoupon.coupon_id == coupon.id,
+            UserCoupon.status == CouponStatus.UNUSED,
+        ).first()
+        if not user_coupon:
+            raise BusinessException("未持有该优惠券或已被使用")
+
+        if coupon.total_quantity:
+            claimed = self.db.query(UserCoupon).filter(
+                UserCoupon.coupon_id == coupon.id
+            ).count()
+            if claimed >= coupon.total_quantity:
+                raise BusinessException("优惠券已被领完")
+
+        if coupon.min_amount and Decimal(str(amount)) < coupon.min_amount:
+            raise BusinessException("订单金额需满{}元".format(coupon.min_amount))
 
         if coupon.discount_type == 'percent':
             discount_amount = amount * (coupon.discount_value / Decimal('100'))
@@ -658,6 +842,8 @@ class OperationService:
             discount_amount = Decimal('0')
 
         final_amount = max(Decimal('0'), amount - discount_amount)
+        user_coupon.status = CouponStatus.USED
+        user_coupon.used_at = now
         self.db.commit()
         self.db.refresh(user_coupon)
 
@@ -675,9 +861,11 @@ class OperationService:
         code = self.referral_service.generate_referral_code(self.db, user_id)
         return {"referral_code": code, "referral_url": f"https://your-domain.com/register?ref={code}"}
     
-    async def get_referral_records(self, referrer_id: int, status: Optional[str] = None,
+    async def get_referral_records(self, referrer_id: Optional[int] = None, status: Optional[str] = None,
                                   skip: int = 0, limit: int = 20) -> tuple[List[ReferralRecord], int]:
-        query = self.db.query(ReferralRecord).filter(ReferralRecord.referrer_id == referrer_id)
+        query = self.db.query(ReferralRecord)
+        if referrer_id is not None:
+            query = query.filter(ReferralRecord.referrer_id == referrer_id)
         if status:
             query = query.filter(ReferralRecord.status == status)
         total = query.count()
@@ -701,6 +889,15 @@ class OperationService:
             ReferralRecord.referrer_id == user_id,
             ReferralRecord.status == ReferralStatus.PENDING
         ).scalar() or Decimal('0')
+        total_credits = self.db.query(func.sum(ReferralRecord.reward_credits)).filter(
+            ReferralRecord.referrer_id == user_id,
+            ReferralRecord.status == ReferralStatus.SETTLED
+        ).scalar() or 0
+        coupon_rewards = self.db.query(ReferralRecord).filter(
+            ReferralRecord.referrer_id == user_id,
+            ReferralRecord.status == ReferralStatus.SETTLED,
+            ReferralRecord.reward_type == "coupon",
+        ).count()
 
         return {
             "total_referrals": total_referrals,
@@ -708,6 +905,8 @@ class OperationService:
             "pending_referrals": total_referrals - completed_referrals,
             "total_rewards": float(total_rewards),
             "pending_rewards": float(pending_amount),
+            "total_reward_credits": int(total_credits or 0),
+            "coupon_rewards": coupon_rewards,
             "referral_code": referral_code,
         }
 
@@ -751,7 +950,69 @@ class OperationService:
             except BusinessException:
                 continue
         return settled
-    
+
+    async def get_referral_rule(self) -> ReferralRule:
+        """获取平台返利规则，不存在则创建默认规则（积分 10%）"""
+        rule = self.db.query(ReferralRule).first()
+        if not rule:
+            rule = ReferralRule(
+                reward_type="credits",
+                credits_rate=Decimal("0.10"),
+                register_credits=50,
+                is_enabled=True,
+            )
+            self.db.add(rule)
+            self.db.commit()
+            self.db.refresh(rule)
+        return rule
+
+    async def update_referral_rule(self, rule_data: Any) -> ReferralRule:
+        """更新平台返利规则"""
+        rule = await self.get_referral_rule()
+        data = rule_data.model_dump(exclude_unset=True)
+        if data.get("reward_type") == "coupon":
+            coupon_id = data.get("coupon_id", rule.coupon_id)
+            if not coupon_id:
+                raise BusinessException("优惠券返利必须关联一张优惠券")
+        if data.get("reward_type") == "register_credits":
+            credits = data.get("register_credits", rule.register_credits)
+            if not credits or int(credits) <= 0:
+                raise BusinessException("邀请注册返利必须设置大于 0 的积分数量")
+        for key, value in data.items():
+            setattr(rule, key, value)
+        self.db.commit()
+        self.db.refresh(rule)
+        return rule
+
+    async def get_referral_statistics_admin(self) -> Dict[str, Any]:
+        """管理员查看全平台推广统计"""
+        total = self.db.query(ReferralRecord).count()
+        settled = self.db.query(ReferralRecord).filter(
+            ReferralRecord.status == ReferralStatus.SETTLED
+        ).count()
+        pending = self.db.query(ReferralRecord).filter(
+            ReferralRecord.status == ReferralStatus.PENDING
+        ).count()
+        total_rewards = self.db.query(func.sum(ReferralRecord.reward_amount)).filter(
+            ReferralRecord.status == ReferralStatus.SETTLED
+        ).scalar() or Decimal("0")
+        total_credits = self.db.query(func.sum(ReferralRecord.reward_credits)).filter(
+            ReferralRecord.status == ReferralStatus.SETTLED
+        ).scalar() or 0
+        coupon_rewards = self.db.query(ReferralRecord).filter(
+            ReferralRecord.status == ReferralStatus.SETTLED,
+            ReferralRecord.reward_type == "coupon",
+        ).count()
+        return {
+            "total_referrals": total,
+            "completed_referrals": settled,
+            "pending_referrals": pending,
+            "total_rewards": float(total_rewards),
+            "total_reward_credits": int(total_credits or 0),
+            "coupon_rewards": coupon_rewards,
+            "referral_code": "",
+        }
+
     # Statistics methods
     async def get_statistics(self, start_date: Optional[datetime] = None, 
                            end_date: Optional[datetime] = None) -> Dict[str, Any]:
@@ -852,6 +1113,17 @@ class OperationService:
                 RechargeOrder.payment_status == PaymentStatus.PAID,
             ).group_by(sa_func.date(RechargeOrder.created_at)).all()
         )
+        recharge_count_by_day = dict(
+            (_day_key(r.d), r.c)
+            for r in self.db.query(
+                sa_func.date(RechargeOrder.created_at).label('d'),
+                sa_func.count(RechargeOrder.id).label('c'),
+            ).filter(
+                RechargeOrder.created_at >= start_date,
+                RechargeOrder.created_at <= end_date,
+                RechargeOrder.payment_status == PaymentStatus.PAID,
+            ).group_by(sa_func.date(RechargeOrder.created_at)).all()
+        )
         membership_by_day = dict(
             (_day_key(m.d), float(m.amt or 0))
             for m in self.db.query(
@@ -883,6 +1155,21 @@ class OperationService:
                 Creation.created_at <= end_date,
             ).group_by(sa_func.date(Creation.created_at)).all()
         )
+        creation_by_day_type = {}
+        for d, t, c in self.db.query(
+            sa_func.date(Creation.created_at).label('d'),
+            Creation.creation_type.label('t'),
+            sa_func.count(Creation.id).label('c'),
+        ).filter(
+            Creation.created_at >= start_date,
+            Creation.created_at <= end_date,
+        ).group_by(
+            sa_func.date(Creation.created_at),
+            Creation.creation_type,
+        ).all():
+            creation_by_day_type.setdefault(_day_key(d), {})[
+                getattr(t, 'value', str(t))
+            ] = c
         active_users_by_day = dict(
             (_day_key(d), c)
             for d, c in self.db.query(
@@ -938,21 +1225,42 @@ class OperationService:
                 "date": d,
                 "recharge_amount": recharge_by_day.get(d, 0),
                 "membership_amount": membership_by_day.get(d, 0),
+                "total_amount": round(
+                    recharge_by_day.get(d, 0) + membership_by_day.get(d, 0), 2
+                ),
+                "order_count": (
+                    recharge_count_by_day.get(d, 0)
+                    + memberships_count_by_day.get(d, 0)
+                ),
             }
             for d in date_strs
         ]
-        user_details = [
-            {
+        cum_members = 0
+        user_details = []
+        for d in date_strs:
+            cum_members += memberships_count_by_day.get(d, 0)
+            user_details.append({
                 "date": d,
                 "new_users": users_by_day.get(d, 0),
                 "active_users": active_users_by_day.get(d, 0),
-            }
-            for d in date_strs
-        ]
-        creation_details = [
-            {"date": d, "count": creations_by_day.get(d, 0)}
-            for d in date_strs
-        ]
+                "new_members": memberships_count_by_day.get(d, 0),
+                "total_members": cum_members,
+            })
+        creation_details = []
+        for d in date_strs:
+            day_types = creation_by_day_type.get(d, {})
+            writing_count = sum(
+                c for t, c in day_types.items()
+                if t not in ("image", "video", "ppt")
+            )
+            creation_details.append({
+                "date": d,
+                "writing_count": writing_count,
+                "image_count": day_types.get("image", 0),
+                "video_count": day_types.get("video", 0),
+                "ppt_count": day_types.get("ppt", 0),
+                "total_count": sum(day_types.values()),
+            })
         creation_distribution = [
             {
                 "name": getattr(t, "value", str(t)),

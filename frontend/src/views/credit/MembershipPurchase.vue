@@ -120,6 +120,23 @@
         </el-radio>
       </el-radio-group>
 
+      <el-form-item label="优惠券" class="coupon-form">
+        <el-select
+          v-model="selectedCouponCode"
+          placeholder="不使用优惠券"
+          clearable
+          style="width: 100%"
+          @change="handleCouponChange"
+        >
+          <el-option
+            v-for="uc in availableCoupons"
+            :key="uc.id"
+            :label="couponLabel(uc)"
+            :value="uc.coupon.code"
+          />
+        </el-select>
+      </el-form-item>
+
       <div class="payment-summary">
         <div class="summary-item">
           <span>套餐类型</span>
@@ -133,9 +150,13 @@
           <span>原价</span>
           <span class="original-price">￥{{ selectedPrice.original_amount }}</span>
         </div>
+        <div v-if="couponDiscount > 0" class="summary-item">
+          <span>优惠券抵扣</span>
+          <span class="original-price">-￥{{ couponDiscount.toFixed(2) }}</span>
+        </div>
         <div class="summary-item total">
           <span>实付金额</span>
-          <span class="price-text">￥{{ selectedPrice.amount }}</span>
+          <span class="price-text">￥{{ payAmount.toFixed(2) }}</span>
         </div>
       </div>
 
@@ -213,9 +234,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Check, CreditCard, Wallet } from '@element-plus/icons-vue'
+import { getUserCoupons, calculateCouponDiscount } from '@/api/operation'
+import { useUserStore } from '@/store/user'
 import {
   createMembershipOrder,
   getCreditBalance,
@@ -238,6 +262,22 @@ const selectedPrice = ref<MembershipPrice | null>(null)
 const paymentMethod = ref('alipay')
 const loading = ref(false)
 const orders = ref<MembershipOrder[]>([])
+const availableCoupons = ref<any[]>([])
+const selectedCouponCode = ref('')
+const couponDiscount = ref(0)
+const route = useRoute()
+const userStore = useUserStore()
+
+const payAmount = computed(() => {
+  const base = Number(selectedPrice.value?.amount || 0)
+  return Math.max(0, base - couponDiscount.value)
+})
+
+const couponLabel = (uc: any) => {
+  const c = uc.coupon
+  const d = c.discount_type === 'percent' ? `${Number(c.discount_value)}% 优惠` : `减 ${Number(c.discount_value)} 元`
+  return `${c.name}（${d}）`
+}
 
 const getMembershipTypeName = (type: string) => {
   const names: Record<string, string> = {
@@ -284,6 +324,50 @@ const loadOrders = async () => {
 
 const selectPrice = (price: MembershipPrice) => {
   selectedPrice.value = price
+  recalcDiscount()
+}
+
+const loadCoupons = async () => {
+  try {
+    const res: any = await getUserCoupons({ skip: 0, limit: 100 })
+    const items: any[] = res.data?.items || res.data || []
+    const now = Date.now()
+    availableCoupons.value = items.filter((uc: any) => {
+      if (uc.status !== 'unused') return false
+      const type = uc.coupon?.coupon_type
+      if (!['membership_discount', 'general'].includes(type)) return false
+      const from = uc.coupon.valid_from ? new Date(uc.coupon.valid_from).getTime() : 0
+      const until = uc.coupon.valid_until ? new Date(uc.coupon.valid_until).getTime() : Infinity
+      return now >= from && now <= until
+    })
+    const preset = route.query.coupon as string | undefined
+    if (preset && availableCoupons.value.some((uc) => uc.coupon.code === preset)) {
+      selectedCouponCode.value = preset
+      recalcDiscount()
+    }
+  } catch (e) {
+    console.error('加载优惠券失败:', e)
+  }
+}
+
+const recalcDiscount = async () => {
+  if (!selectedCouponCode.value || !selectedPrice.value) {
+    couponDiscount.value = 0
+    return
+  }
+  try {
+    const res: any = await calculateCouponDiscount({
+      coupon_code: selectedCouponCode.value,
+      original_amount: Number(selectedPrice.value.amount),
+    })
+    couponDiscount.value = Number(res.data?.discount_amount || 0)
+  } catch (e) {
+    couponDiscount.value = 0
+  }
+}
+
+const handleCouponChange = () => {
+  recalcDiscount()
 }
 
 const handlePurchase = async () => {
@@ -297,6 +381,7 @@ const handlePurchase = async () => {
     await createMembershipOrder({
       price_id: selectedPrice.value.id,
       payment_method: paymentMethod.value,
+      coupon_code: selectedCouponCode.value || undefined,
     })
     ElMessage.success('订单创建成功，请完成支付')
     await loadOrders()
@@ -316,6 +401,7 @@ const handleSimulatePayment = async (order: MembershipOrder) => {
     ElMessage.success('支付成功')
     await loadBalance()
     await loadOrders()
+    await userStore.refreshCredits()
   } catch (error: any) {
     ElMessage.error(error.response?.data?.message || '支付失败')
   }
@@ -325,6 +411,7 @@ onMounted(() => {
   loadBalance()
   loadPrices()
   loadOrders()
+  loadCoupons()
 })
 </script>
 

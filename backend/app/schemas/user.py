@@ -77,6 +77,9 @@ class UserResponse(BaseModel):
     daily_quota: int
     used_quota: int
     total_creations: int
+    credits: int = 0
+    is_member: int = 0
+    member_expired_at: Optional[datetime] = None
     created_at: datetime
     
     class Config:

@@ -39,7 +39,17 @@
               详情
             </el-button>
             <el-button type="warning" size="small" @click="handleResetPassword(row)">
-              重置密码
+             重置密码
+            </el-button>
+            <el-button type="danger" size="small" @click="handleDeleteUser(row)">
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button size="small" :type="row.is_active ? 'warning' : 'success'" @click="handleToggleModel(row)">
+              {{ row.is_active ? '禁用' : '启用' }}
             </el-button>
           </template>
         </el-table-column>
@@ -109,7 +119,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getUserList, getUserDetail, resetUserPassword } from '@/api/adminUsers'
+import { getUserList, getUserDetail, resetUserPassword, toggleModelStatus, deleteUser } from '@/api/adminUsers'
 
 const loading = ref(false)
 const users = ref<any[]>([])
@@ -173,6 +183,32 @@ const handleResetPassword = async (user: any) => {
     if (error !== 'cancel') {
       ElMessage.error(error.message || '重置失败')
     }
+  }
+}
+
+const handleDeleteUser = async (user: any) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除用户 "${user.username}" 吗？此操作不可恢复。`, '提示', {
+      type: 'warning',
+    })
+    await deleteUser(user.id)
+    ElMessage.success('用户已删除')
+    loadUsers()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '删除失败')
+    }
+  }
+}
+
+const handleToggleModel = async (model: any) => {
+  if (!currentUser.value) return
+  try {
+    await toggleModelStatus(currentUser.value.id, model.id, !model.is_active)
+    model.is_active = !model.is_active
+    ElMessage.success(model.is_active ? '模型已启用' : '模型已禁用')
+  } catch (error: any) {
+    ElMessage.error(error.message || '操作失败')
   }
 }
 

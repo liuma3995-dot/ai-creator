@@ -12,9 +12,7 @@
         <el-form-item label="活动类型" style="width: 20%">
           <el-select v-model="searchForm.activity_type" placeholder="全部" clearable>
             <el-option label="积分赠送" value="credit_gift" />
-            <el-option label="充值优惠" value="recharge_bonus" />
             <el-option label="优惠券活动" value="coupon" />
-            <el-option label="推广返利" value="referral" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态" style="width: 20%">
@@ -36,9 +34,7 @@
         <el-table-column prop="activity_type" label="活动类型">
           <template #default="{ row }">
             <el-tag v-if="row.activity_type === 'credit_gift'">积分赠送</el-tag>
-            <el-tag v-else-if="row.activity_type === 'recharge_bonus'" type="success">充值优惠</el-tag>
             <el-tag v-else-if="row.activity_type === 'coupon'" type="warning">优惠券活动</el-tag>
-            <el-tag v-else-if="row.activity_type === 'referral'" type="primary">推广返利</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="奖励金额" width="100">
@@ -112,9 +108,7 @@
         <el-form-item label="活动类型" required>
           <el-select v-model="activityForm.activity_type">
             <el-option label="积分赠送" value="credit_gift" />
-            <el-option label="充值优惠" value="recharge_bonus" />
             <el-option label="优惠券活动" value="coupon" />
-            <el-option label="推广返利" value="referral" />
           </el-select>
         </el-form-item>
         <el-form-item label="奖励类型" required>
@@ -125,6 +119,16 @@
         </el-form-item>
         <el-form-item label="奖励金额" required>
           <el-input-number v-model="activityForm.reward_amount" :min="0" />
+        </el-form-item>
+        <el-form-item v-if="activityForm.activity_type === 'coupon'" label="关联优惠券" required>
+          <el-select v-model="activityForm.couponId" placeholder="选择要发放的优惠券" style="width: 100%">
+            <el-option
+              v-for="c in couponOptions"
+              :key="c.id"
+              :label="`${c.name}（${c.code}）`"
+              :value="c.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
@@ -189,12 +193,25 @@ const activityForm = reactive({
   activity_type: 'credit_gift',
   reward_type: 'credit',
   reward_amount: 0,
+  couponId: undefined as number | undefined,
   start_time: '',
   end_time: '',
   max_participants: undefined as number | undefined,
   budget: undefined as number | undefined,
   target_users: '',
 })
+
+const couponOptions = ref<operationApi.Coupon[]>([])
+
+const loadCouponOptions = async () => {
+  try {
+    const res: any = await operationApi.getCoupons({ skip: 0, limit: 100 })
+    const items: operationApi.Coupon[] = res.data?.items || res.data || []
+    couponOptions.value = items.filter((c) => c.is_active !== false)
+  } catch (e) {
+    console.error('加载优惠券选项失败:', e)
+  }
+}
 
 const loadActivities = async () => {
   try {
@@ -242,6 +259,7 @@ const editActivity = (activity: operationApi.Activity) => {
     target_users: activity.target_users
       ? JSON.stringify(activity.target_users, null, 2)
       : '',
+    couponId: (activity.rules as any)?.coupon_id ?? undefined,
   })
   dialogVisible.value = true
 }
@@ -273,6 +291,14 @@ const changeStatus = async (activity: operationApi.Activity, status: string) => 
 
 const saveActivity = async () => {
   try {
+    if (!activityForm.start_time || !activityForm.end_time) {
+      ElMessage.error('请选择活动开始和结束时间')
+      return
+    }
+    if (new Date(activityForm.end_time).getTime() <= new Date(activityForm.start_time).getTime()) {
+      ElMessage.error('结束时间必须晚于开始时间')
+      return
+    }
     let target_users: unknown
     if (activityForm.target_users && activityForm.target_users.trim()) {
       try {
@@ -286,6 +312,19 @@ const saveActivity = async () => {
       ...activityForm,
       budget: activityForm.budget ?? undefined,
       target_users,
+    }
+    if (activityForm.activity_type === 'coupon') {
+      const coupon = couponOptions.value.find((c) => c.id === activityForm.couponId)
+      if (!coupon) {
+        ElMessage.error('请选择要发放的优惠券')
+        return
+      }
+      payload.rules = {
+        ...(payload.rules || {}),
+        reward_type: 'coupon',
+        coupon_id: coupon.id,
+        coupon_code: coupon.code,
+      }
     }
     if (activityForm.id) {
       await operationApi.updateActivity(activityForm.id, payload)
@@ -308,8 +347,9 @@ const resetForm = () => {
   activityForm.activity_type = 'credit_gift'
   activityForm.reward_type = 'credit'
   activityForm.reward_amount = 0
-  activityForm.start_time = ''
-  activityForm.end_time = ''
+  activityForm.couponId = undefined
+  activityForm.start_time = new Date()
+  activityForm.end_time = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
   activityForm.max_participants = undefined
   activityForm.budget = undefined
   activityForm.target_users = ''
@@ -317,6 +357,7 @@ const resetForm = () => {
 
 onMounted(() => {
   loadActivities()
+  loadCouponOptions()
 })
 </script>
 

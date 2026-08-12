@@ -77,6 +77,18 @@ const routes: RouteRecordRaw[] = [
                 meta: {requiresAuth: true},
             },
             {
+                path: 'activities',
+                name: 'ActivityCenter',
+                component: () => import('@/views/activity/ActivityCenter.vue'),
+                meta: {requiresAuth: true},
+            },
+            {
+                path: 'referral',
+                name: 'MyReferral',
+                component: () => import('@/views/referral/MyReferral.vue'),
+                meta: {requiresAuth: true},
+            },
+            {
                 path: 'settings',
                 name: 'UserSettings',
                 component: () => import('@/views/settings/UserSettings.vue'),
@@ -104,6 +116,12 @@ const routes: RouteRecordRaw[] = [
                 path: 'credit/transactions',
                 name: 'TransactionHistory',
                 component: () => import('@/views/credit/TransactionHistory.vue'),
+                meta: {requiresAuth: true},
+            },
+            {
+                path: 'credit/coupons',
+                name: 'MyCoupons',
+                component: () => import('@/views/credit/MyCoupons.vue'),
                 meta: {requiresAuth: true},
             },
             {

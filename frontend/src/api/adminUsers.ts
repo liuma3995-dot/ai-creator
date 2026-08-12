@@ -81,7 +81,7 @@ export function toggleModelStatus(
   modelId: number,
   isActive: boolean
 ) {
-  return request.post(`/v1/admin/users/${userId}/toggle-model-status`,{ model_id: modelId, is_active: isActive })
+  return request.post(`/v1/admin/users/${userId}/toggle-model-status`, null, { params: { model_id: modelId, is_active: isActive } })
 }
 
 /**

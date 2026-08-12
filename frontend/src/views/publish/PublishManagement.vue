@@ -349,6 +349,41 @@ const parseCookieString = (s: string) => {
   });
   return cookies
 }
+// 兼容三种粘贴格式：
+// 1) JSON 对象 {"a":"1","b":"2"}
+// 2) 浏览器扩展导出的 JSON 数组 [{name,value,domain,...}, ...]
+// 3) 标准 Cookie 字符串 "a=1; b=2"
+const parseCookiesInput = (input: string): Record<string, string> | null => {
+  if (!input || !input.trim()) return null
+  const text = input.trim()
+
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, string> = {}
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          out[k] = String(v)
+        }
+      }
+      return Object.keys(out).length ? out : null
+    }
+    if (Array.isArray(parsed)) {
+      const out: Record<string, string> = {}
+      for (const item of parsed) {
+        if (item && typeof item === 'object' && item.name && item.value != null) {
+          out[String(item.name)] = String(item.value)
+        }
+      }
+      return Object.keys(out).length ? out : null
+    }
+  } catch {
+    // 不是 JSON，继续按 Cookie 字符串解析
+  }
+
+  const out = parseCookieString(text)
+  return Object.keys(out).length ? out : null
+}
 const loadPlatforms = async () => {
   try {
     platforms.value = await getPlatforms() || []
@@ -479,14 +514,14 @@ const handleBind = async () => {
         await authorizePlatformAccount({platform: bindForm.platformCode, account_name: bindForm.accountName});
         ElMessage.success('授权成功，已自动获取 Cookie')
       } else {
-        let cookies: Record<string, string> = {};
-        try {
-          cookies = JSON.parse(bindForm.cookies)
-        } catch {
-          cookies = parseCookieString(bindForm.cookies)
-        }
-        if (!Object.keys(cookies).length) return ElMessage.error('Cookie 格式错误');
-        const account = await createPlatformAccount({
+        const cookies = parseCookiesInput(bindForm.cookies)
+        if (!cookies) return ElMessage.error('Cookie 格式错误，请粘贴对象格式、浏览器扩展导出的数组格式或标准 Cookie 字符串');
+        // 刷新账号列表，避免上次绑定失败留下的半成品账号导致“账号已存在”400
+        await loadPlatformAccounts()
+        const existing = platformAccounts.value.find(
+          (a) => a.platform === bindForm.platformCode && a.account_name === bindForm.accountName
+        )
+        const account = existing || await createPlatformAccount({
           platform: bindForm.platformCode,
           account_name: bindForm.accountName
         });
@@ -508,13 +543,8 @@ const handleUpdateCookies = async () => {
     if (!valid) return;
     updatingCookies.value = true;
     try {
-      let cookies: Record<string, string> = {};
-      try {
-        cookies = JSON.parse(cookieForm.cookies)
-      } catch {
-        cookies = parseCookieString(cookieForm.cookies)
-      }
-      if (!Object.keys(cookies).length) return ElMessage.error('Cookie 格式错误');
+      const cookies = parseCookiesInput(cookieForm.cookies)
+      if (!cookies) return ElMessage.error('Cookie 格式错误，请粘贴对象格式、浏览器扩展导出的数组格式或标准 Cookie 字符串');
       const r = await updatePlatformCookies(cookieForm.accountId, cookies);
       r.valid ? ElMessage.success('Cookie 更新成功') : ElMessage.warning(r.message || 'Cookie 更新失败');
       showCookieDialog.value = false;

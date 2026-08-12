@@ -109,7 +109,7 @@ class TestActivityService:
     def test_create_activity_keeps_rules_when_no_reward_fields(self, db_session, test_user):
         data = ActivityCreate(
             title="无奖励活动",
-            activity_type="referral",
+            activity_type="credit_gift",
             rules={"note": "仅记录"},
             start_time=datetime.now() - timedelta(days=1),
             end_time=datetime.now() + timedelta(days=7),
@@ -334,7 +334,8 @@ class TestOperationServiceCoupon:
     """OperationService 优惠券相关方法测试"""
 
     async def test_calculate_coupon_discount_percent(self, db_session, test_user):
-        _make_coupon(db_session, code="CALC10", discount_type="percent", discount_value=Decimal("20"))
+        coupon = _make_coupon(db_session, code="CALC10", discount_type="percent", discount_value=Decimal("20"))
+        CouponService.receive_coupon(db_session, coupon.id, test_user.id)
         svc = OperationService(db_session)
         result = await svc.calculate_coupon_discount(test_user.id, "CALC10", Decimal("100"))
         assert result["discount_amount"] == 20.0
@@ -346,7 +347,8 @@ class TestOperationServiceCoupon:
             await svc.calculate_coupon_discount(test_user.id, "NOPE", Decimal("100"))
 
     async def test_use_coupon_by_code(self, db_session, test_user):
-        _make_coupon(db_session, code="USE10", discount_type="percent", discount_value=Decimal("10"))
+        coupon = _make_coupon(db_session, code="USE10", discount_type="percent", discount_value=Decimal("10"))
+        CouponService.receive_coupon(db_session, coupon.id, test_user.id)
         svc = OperationService(db_session)
         result = await svc.use_coupon(test_user.id, {
             "coupon_code": "USE10",
@@ -461,5 +463,106 @@ class TestOperationServiceStatistics:
         svc = OperationService(db_session)
         result = await svc.get_user_statistics(test_user.id)
         assert result["total_creations"] == 0
-        assert result["activities_participated"] == 0
-        assert result["coupons_received"] == 0
+
+
+class TestReferralAutoSettle:
+    """推广返利自动结算（积分/优惠券/仅一次）"""
+
+    def _make_referee(self, db):
+        from app.core.security import get_password_hash
+        from app.models.user import UserStatus
+        u = User(
+            username="referee",
+            email="referee@t.com",
+            password_hash=get_password_hash("x12345678"),
+            status=UserStatus.ACTIVE,
+        )
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    def _make_rule(self, db, reward_type="credits", rate=Decimal("0.10"), coupon_id=None, register_credits=None):
+        from app.models.operation import ReferralRule
+        rule = ReferralRule(
+            reward_type=reward_type,
+            credits_rate=rate,
+            coupon_id=coupon_id,
+            register_credits=register_credits if register_credits is not None else 50,
+            is_enabled=True,
+        )
+        db.add(rule)
+        db.commit()
+        db.refresh(rule)
+        return rule
+
+    def _make_record(self, db, referrer_id, referee_id):
+        from app.models.operation import ReferralRecord, ReferralStatus
+        rec = ReferralRecord(
+            referrer_id=referrer_id,
+            referee_id=referee_id,
+            status=ReferralStatus.PENDING,
+            trigger_event="register",
+        )
+        db.add(rec)
+        db.commit()
+        db.refresh(rec)
+        return rec
+
+    def test_settle_credits_once(self, db_session, test_user):
+        referee = self._make_referee(db_session)
+        self._make_rule(db_session)
+        rec = self._make_record(db_session, test_user.id, referee.id)
+
+        result = ReferralService.settle_referral_on_order(db_session, referee.id, "recharge", Decimal("50"))
+        assert result is not None
+        assert result.status == ReferralStatus.SETTLED
+        assert result.trigger_event == "first_recharge"
+        assert result.reward_type == "credits"
+        assert result.reward_credits == 500
+        db_session.refresh(test_user)
+        assert test_user.credits == 500
+
+        before = test_user.credits
+        ReferralService.settle_referral_on_order(db_session, referee.id, "membership", Decimal("50"))
+        db_session.refresh(test_user)
+        assert test_user.credits == before
+
+    def test_settle_coupon(self, db_session, test_user):
+        coupon = _make_coupon(db_session, code="REFTEST1", discount_type="fixed", discount_value=Decimal("5"))
+        self._make_rule(db_session, reward_type="coupon", coupon_id=coupon.id)
+        referee = self._make_referee(db_session)
+        rec = self._make_record(db_session, test_user.id, referee.id)
+
+        result = ReferralService.settle_referral_on_order(db_session, referee.id, "membership", Decimal("30"))
+        assert result is not None
+        assert result.reward_type == "coupon"
+        assert result.coupon_id == coupon.id
+        uc = db_session.query(UserCoupon).filter(UserCoupon.user_id == test_user.id).first()
+        assert uc is not None
+        assert uc.status == CouponStatus.UNUSED
+
+    def test_settle_register_credits(self, db_session, test_user):
+        self._make_rule(db_session, reward_type="register_credits", register_credits=100)
+        referee = self._make_referee(db_session)
+        rec = self._make_record(db_session, test_user.id, referee.id)
+
+        result = ReferralService.settle_referral_on_register(db_session, rec)
+        assert result is not None
+        assert result.status == ReferralStatus.SETTLED
+        assert result.reward_type == "register_credits"
+        assert result.reward_credits == 100
+        db_session.refresh(test_user)
+        assert test_user.credits == 100
+
+        # 已结算后不再重复发放
+        ReferralService.settle_referral_on_register(db_session, rec)
+        db_session.refresh(test_user)
+        assert test_user.credits == 100
+
+    def test_manual_approve_records_reward_fields(self, db_session, test_user):
+        referee = self._make_referee(db_session)
+        rec = self._make_record(db_session, test_user.id, referee.id)
+        result = ReferralService.complete_referral(db_session, rec.id, Decimal("10"))
+        assert result.reward_type == "credits"
+        assert result.reward_credits == 1000

@@ -40,6 +40,14 @@
                 <el-icon><Clock /></el-icon>
                 历史记录
               </el-menu-item>
+              <el-menu-item index="/activities">
+                <el-icon><Flag /></el-icon>
+                活动中心
+              </el-menu-item>
+              <el-menu-item index="/referral">
+                <el-icon><Connection /></el-icon>
+                我的推广
+              </el-menu-item>
               <el-menu-item index="/publish">
                 <el-icon><Upload /></el-icon>
                 发布管理
@@ -58,6 +66,7 @@
               <el-menu-item index="/credit/recharge">积分充值</el-menu-item>
               <el-menu-item index="/credit/membership">会员购买</el-menu-item>
               <el-menu-item index="/credit/transactions">交易记录</el-menu-item>
+              <el-menu-item index="/credit/coupons">我的优惠券</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="userStore.isAdmin" index="/operation">
@@ -202,6 +211,8 @@
               <span>内容管理</span>
             </template>
             <el-menu-item index="/history">历史记录</el-menu-item>
+            <el-menu-item index="/activities">活动中心</el-menu-item>
+            <el-menu-item index="/referral">我的推广</el-menu-item>
             <el-menu-item index="/publish">发布管理</el-menu-item>
             <el-menu-item index="/templates">模板管理</el-menu-item>
           </el-sub-menu>
@@ -214,6 +225,7 @@
             <el-menu-item index="/credit/recharge">积分充值</el-menu-item>
             <el-menu-item index="/credit/membership">会员购买</el-menu-item>
             <el-menu-item index="/credit/transactions">交易记录</el-menu-item>
+            <el-menu-item index="/credit/coupons">我的优惠券</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu v-if="userStore.isAdmin" index="/operation">
@@ -279,6 +291,7 @@ import {
   DataAnalysis,
   Document,
   Edit,
+  Flag,
   Files,
   FolderOpened,
   Medal,
@@ -303,8 +316,14 @@ const showMobileMenu = ref(false)
 
 onMounted(async () => {
   if (userStore.isLoggedIn) {
-    await userStore.updateCreditInfo()
+    await userStore.refreshCredits()
   }
+  // 从其他标签页/页面切回时刷新积分与会员状态，保证顶部导航显示最新值
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && userStore.isLoggedIn) {
+      userStore.refreshCredits()
+    }
+  })
 })
 
 const activeMenu = computed(() => {
@@ -314,6 +333,8 @@ const activeMenu = computed(() => {
   if (path.startsWith('/video')) return '/video'
   if (path.startsWith('/ppt')) return '/ppt'
   if (path.startsWith('/history')) return '/history'
+  if (path.startsWith('/activities')) return '/activities'
+  if (path.startsWith('/referral')) return '/referral'
   if (path.startsWith('/publish')) return '/publish'
   if (path.startsWith('/templates')) return '/templates'
   if (path.startsWith('/credit')) return path

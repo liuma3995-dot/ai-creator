@@ -295,6 +295,7 @@ class RechargeService:
         if order_data.coupon_code:
             discount = CouponService.calculate_order_discount(
                 db,
+                user_id,
                 order_data.coupon_code,
                 price.amount,
                 "recharge",
@@ -376,6 +377,15 @@ class RechargeService:
             )
             
             db.commit()
+            # 被推荐人完成首次充值：自动结算推广返利（失败不影响订单）
+            try:
+                from app.services.operation_service import ReferralService
+                ReferralService.settle_referral_on_order(
+                    db, order.user_id, "recharge", order.amount
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
             return True
         
         return False
@@ -445,6 +455,7 @@ class MembershipService:
         if order_data.coupon_code:
             discount = CouponService.calculate_order_discount(
                 db,
+                user_id,
                 order_data.coupon_code,
                 price.amount,
                 "membership",
@@ -552,6 +563,15 @@ class MembershipService:
             order.expired_at = expired_at
             
             db.commit()
+            # 被推荐人完成首次购买会员：自动结算推广返利（失败不影响订单）
+            try:
+                from app.services.operation_service import ReferralService
+                ReferralService.settle_referral_on_order(
+                    db, order.user_id, "membership", order.amount
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
             return True
         
         return False

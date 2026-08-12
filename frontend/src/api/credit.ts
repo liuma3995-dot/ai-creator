@@ -112,6 +112,7 @@ export const getCreditPrices = () => {
 export const createRechargeOrder = (data: {
   price_id: number
   payment_method: string
+  coupon_code?: string
 }) => {
   return request.post<RechargeOrder>('/v1/credit/recharge', data)
 }
@@ -139,6 +140,7 @@ export const getMembershipPrices = () => {
 export const createMembershipOrder = (data: {
   price_id: number
   payment_method: string
+  coupon_code?: string
 }) => {
   return request.post<MembershipOrder>('/v1/credit/membership', data)
 }

@@ -20,8 +20,11 @@ def _enrich_activity(activity: Any) -> Dict[str, Any]:
 from app.schemas.common import success_response, PaginatedResponse
 from app.schemas.operation import (
     ActivityCreate, ActivityUpdate, ActivityParticipate, ActivityResponse,
+    ActivityParticipationResponse,
     CouponCreate, CouponUpdate, CouponReceive, CouponIssue, CouponUse, CouponResponse,
-    ReferralCodeGenerate, ReferralApprove, ReferralApproveBatch, StatisticsQuery
+    UserCouponResponse,
+    ReferralCodeGenerate, ReferralApprove, ReferralApproveBatch, StatisticsQuery,
+    ReferralRecordResponse, ReferralRuleUpdate
 )
 from app.services.operation_service import OperationService
 from app.utils.deps import get_current_user
@@ -153,7 +156,7 @@ async def get_activity_participations(
         limit=limit
     )
     return success_response(data=PaginatedResponse(
-        items=participations,
+        items=[ActivityParticipationResponse.model_validate(p).model_dump() for p in participations],
         total=total,
         page=skip // limit + 1 if limit > 0 else 1,
         page_size=limit,
@@ -314,7 +317,7 @@ async def get_user_coupons(
         limit=limit
     )
     return success_response(data=PaginatedResponse(
-        items=coupons,
+        items=[UserCouponResponse.model_validate(c).model_dump() for c in coupons],
         total=total,
         page=skip // limit + 1 if limit > 0 else 1,
         page_size=limit,
@@ -341,11 +344,15 @@ async def calculate_coupon_discount(
     current_user: User = Depends(get_current_user)
 ):
     """计算优惠券折扣"""
+    coupon_code = calculate.get("coupon_code")
+    original_amount = calculate.get("original_amount")
+    if not coupon_code or original_amount is None:
+        raise HTTPException(status_code=400, detail="缺少参数: coupon_code / original_amount")
     service = OperationService(db)
     result = await service.calculate_coupon_discount(
         user_id=current_user.id,
-        coupon_code=calculate.get("coupon_code"),
-        original_amount=calculate.get("original_amount")
+        coupon_code=coupon_code,
+        original_amount=original_amount,
     )
     return success_response(data=result)
 
@@ -386,13 +393,14 @@ async def get_referral_records(
 ):
     """获取推荐记录"""
     service = OperationService(db)
+    referrer_id = None if current_user.role == "admin" else current_user.id
     records, total = await service.get_referral_records(
-        referrer_id=current_user.id,
+        referrer_id=referrer_id,
         skip=skip,
         limit=limit
     )
     return success_response(data=PaginatedResponse(
-        items=records,
+        items=[ReferralRecordResponse.model_validate(r).model_dump() for r in records],
         total=total,
         page=skip // limit + 1 if limit > 0 else 1,
         page_size=limit,
@@ -405,10 +413,52 @@ async def get_referral_statistics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """获取推荐统计"""
+    """获取推广统计：管理员查看全平台，普通用户查看自己的"""
     service = OperationService(db)
-    statistics = await service.get_referral_statistics(current_user.id)
+    if current_user.role == "admin":
+        statistics = await service.get_referral_statistics_admin()
+    else:
+        statistics = await service.get_referral_statistics(current_user.id)
     return success_response(data=statistics)
+
+
+@router.get("/referral/rule")
+async def get_referral_rule(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取平台返利规则（管理员）"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    service = OperationService(db)
+    rule = await service.get_referral_rule()
+    return success_response(data={
+        "reward_type": rule.reward_type,
+        "credits_rate": float(rule.credits_rate),
+        "register_credits": rule.register_credits,
+        "coupon_id": rule.coupon_id,
+        "is_enabled": rule.is_enabled,
+    })
+
+
+@router.put("/referral/rule")
+async def update_referral_rule(
+    rule_data: ReferralRuleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新平台返利规则（管理员）"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    service = OperationService(db)
+    rule = await service.update_referral_rule(rule_data)
+    return success_response(data={
+        "reward_type": rule.reward_type,
+        "credits_rate": float(rule.credits_rate),
+        "register_credits": rule.register_credits,
+        "coupon_id": rule.coupon_id,
+        "is_enabled": rule.is_enabled,
+    })
 
 
 @router.post("/referral/approve-batch")

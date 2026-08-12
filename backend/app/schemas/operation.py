@@ -12,7 +12,7 @@ from decimal import Decimal
 class ActivityCreate(BaseModel):
     """创建活动"""
     title: str = Field(..., description="活动标题")
-    activity_type: str = Field(..., description="活动类型")
+    activity_type: Literal["credit_gift", "coupon"] = Field(..., description="活动类型")
     description: Optional[str] = Field(None, description="活动描述")
     rules: Optional[Dict[str, Any]] = Field(None, description="活动规则（reward_type/reward_amount 存入此处）")
     start_time: datetime = Field(..., description="开始时间")
@@ -214,11 +214,22 @@ class ReferralRecordResponse(BaseModel):
     status: str
     trigger_event: Optional[str]
     trigger_amount: Optional[Decimal]
+    coupon_id: Optional[int] = None
+    reward_data: Optional[Dict[str, Any]] = None
     settled_at: Optional[datetime]
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class ReferralRuleUpdate(BaseModel):
+    """返利规则更新"""
+    reward_type: Literal["credits", "register_credits", "coupon"] = "credits"
+    credits_rate: Decimal = Field(Decimal("0.10"), ge=0, le=1, description="积分返利比例")
+    register_credits: Optional[int] = Field(None, ge=1, description="邀请注册返利固定积分数量")
+    coupon_id: Optional[int] = Field(None, description="优惠券返利发放的优惠券ID")
+    is_enabled: bool = True
 
 
 class ReferralStatisticsResponse(BaseModel):

@@ -67,11 +67,14 @@ const loadStats = async () => {
     const creationsResponse = await getCreations({ page: 1, page_size: 1 })
     stats.value.totalCreations = creationsResponse.total || 0
 
-    try {
-      const dashboardResponse = await getDashboardStatistics()
-      stats.value.todayCreations = dashboardResponse.today_creations || 0
-    } catch {
-      stats.value.todayCreations = 0
+    // 运营看板接口仅管理员可用，普通用户调用会被后端拒绝(403)并弹出“拒绝访问”
+    if (userStore.isAdmin) {
+      try {
+        const dashboardResponse = await getDashboardStatistics()
+        stats.value.todayCreations = dashboardResponse.today_creations || 0
+      } catch {
+        stats.value.todayCreations = 0
+      }
     }
 
     const publishResponse = await getPublishHistory({ skip: 0, limit: 1 })

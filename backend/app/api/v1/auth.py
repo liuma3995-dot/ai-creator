@@ -83,8 +83,20 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)) -> Any:
             referee_id=user.id,
             referral_code=user_in.referral_code,
             status=ReferralStatus.PENDING,
+            trigger_event="register",
         ))
         db.commit()
+        # 邀请注册返利：规则为固定积分时注册即结算，失败不影响注册
+        try:
+            from app.services.operation_service import ReferralService
+            record = db.query(ReferralRecord).filter(
+                ReferralRecord.referee_id == user.id,
+                ReferralRecord.status == ReferralStatus.PENDING,
+            ).first()
+            if record:
+                ReferralService.settle_referral_on_register(db, record)
+        except Exception:
+            db.rollback()
     
     # 新用户注册赠送 1000 积分
     try:

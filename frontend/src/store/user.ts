@@ -50,8 +50,10 @@ export const useUserStore = defineStore('user', () => {
     localStorage.setItem('userInfo', JSON.stringify(userInfo.value))
   }
 
-  // 更新用户积分和会员信息
-  const updateCreditInfo = async () => {
+  // ===== 积分/会员状态统一刷新入口 =====
+  // 所有会导致积分变化或需要展示最新积分的场景，统一调用本方法：
+  // 充值支付、活动参与、推广返利到账、积分消费、页面切回首页/顶部导航等。
+  const refreshCredits = async () => {
     try {
       const response = await creditApi.getCreditBalance() as any
       // 响应格式: { code: 200, message: "success", data: { credits, is_member, ... } }
@@ -66,6 +68,8 @@ export const useUserStore = defineStore('user', () => {
       console.error('更新积分信息失败:', error)
     }
   }
+  // 兼容旧调用方
+  const updateCreditInfo = refreshCredits
 
   // 登出
   const logout = () => {
@@ -108,6 +112,7 @@ export const useUserStore = defineStore('user', () => {
     login,
     register,
     getUserInfo,
+    refreshCredits,
     updateCreditInfo,
     logout,
     restoreUser

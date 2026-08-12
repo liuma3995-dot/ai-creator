@@ -6,14 +6,13 @@ from sqlalchemy.orm import relationship, foreign
 from sqlalchemy.sql import func
 from app.core.database import Base
 import enum
+from decimal import Decimal
 
 
 class ActivityType(str, enum.Enum):
-    """活动类型枚举"""
+    """活动类型枚举（仅保留已实现参与业务场景的类型）"""
     CREDIT_GIFT = "credit_gift"  # 积分赠送
-    RECHARGE_BONUS = "recharge_bonus"  # 充值优惠
     COUPON = "coupon"  # 优惠券
-    REFERRAL = "referral"  # 推广返利
 
 
 class ActivityStatus(str, enum.Enum):
@@ -56,7 +55,7 @@ class Activity(Base):
     activity_type = Column(
         Enum(ActivityType),
         nullable=False,
-        comment="活动类型: credit_gift-积分赠送, recharge_bonus-充值优惠, coupon-优惠券, referral-推广返利"
+        comment="活动类型: credit_gift-积分赠送, coupon-优惠券"
     )
 
     status = Column(
@@ -285,6 +284,8 @@ class ReferralRecord(Base):
     # 触发条件
     trigger_event = Column(String(50), comment="触发事件（register-注册, first_recharge-首充, membership-购买会员等）")
     trigger_amount = Column(Numeric(10, 2), comment="触发金额")
+    coupon_id = Column(BigInteger, comment="优惠券返利关联优惠券ID")
+    reward_data = Column(JSON, comment="奖励扩展信息（优惠券码等）")
 
     settled_at = Column(DateTime, comment="结算时间")
     remark = Column(Text, comment="备注")
@@ -309,6 +310,43 @@ class ReferralRecord(Base):
 
     def __repr__(self):
         return f"<ReferralRecord(id={self.id}, referrer_id={self.referrer_id}, referee_id={self.referee_id}, status={self.status})>"
+
+
+class ReferralRule(Base):
+    """推广返利规则（平台级单条配置）"""
+    __tablename__ = "referral_rules"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    reward_type = Column(
+        String(20),
+        nullable=False,
+        default="credits",
+        comment="返利方式: credits-比例积分, register_credits-邀请注册固定积分, coupon-优惠券",
+    )
+    credits_rate = Column(
+        Numeric(6, 4),
+        nullable=False,
+        default=Decimal("0.10"),
+        comment="积分返利比例（订单金额比例，如 0.10=10%）",
+    )
+    register_credits = Column(
+        Integer,
+        nullable=False,
+        default=50,
+        comment="邀请注册返利固定积分数量",
+    )
+    coupon_id = Column(BigInteger, comment="优惠券返利发放的优惠券ID")
+    is_enabled = Column(Boolean, nullable=False, default=True, comment="是否启用")
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+        comment="更新时间",
+    )
+
+    def __repr__(self):
+        return f"<ReferralRule(id={self.id}, reward_type={self.reward_type})>"
 
 
 class OperationStatistics(Base):

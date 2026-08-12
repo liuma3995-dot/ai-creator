@@ -72,6 +72,16 @@
               />
             </el-form-item>
 
+            <el-form-item prop="referralCode">
+              <el-input
+                v-model="registerForm.referralCode"
+                placeholder="推荐码（选填，填写后双方可获推广奖励）"
+                size="large"
+                :prefix-icon="Connection"
+                clearable
+              />
+            </el-form-item>
+
             <el-form-item prop="agree" class="agree-item">
               <el-checkbox v-model="registerForm.agree">
                 我已阅读并同意
@@ -105,13 +115,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock, Message } from '@element-plus/icons-vue'
+import { User, Lock, Message, Connection } from '@element-plus/icons-vue'
 import { register } from '@/api/auth'
 
 const router = useRouter()
+const route = useRoute()
 
 const registerFormRef = ref<FormInstance>()
 const loading = ref(false)
@@ -121,7 +132,15 @@ const registerForm = reactive({
   email: '',
   password: '',
   confirmPassword: '',
+  referralCode: '',
   agree: false,
+})
+
+onMounted(() => {
+  const refCode = route.query.ref as string | undefined
+  if (refCode) {
+    registerForm.referralCode = refCode
+  }
 })
 
 const validateUsername = (_rule: any, value: string, callback: any) => {
@@ -197,6 +216,7 @@ const handleRegister = async () => {
         username: registerForm.username,
         email: registerForm.email,
         password: registerForm.password,
+        referral_code: registerForm.referralCode || undefined,
       })
       ElMessage.success('注册成功，请登录')
       router.push('/login')

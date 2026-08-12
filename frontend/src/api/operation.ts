@@ -80,6 +80,8 @@ export interface ReferralStatistics {
   pending_referrals: number
   total_rewards: number
   pending_rewards: number
+  total_reward_credits: number
+  coupon_rewards: number
   referral_code: string
 }
 
@@ -139,7 +141,7 @@ export const deleteActivity = (activityId: number) => {
 }
 
 export const participateActivity = (activityId: number) => {
-  return request.post<ActivityParticipation>(`/v1/operation/activities/${activityId}/participate`)
+  return request.post<ActivityParticipation>(`/v1/operation/activities/${activityId}/participate`, { activity_id: activityId })
 }
 
 export const getActivityParticipations = (activityId: number, params?: {
@@ -207,6 +209,18 @@ export const getUserCoupons = (params?: {
   return request.get<UserCoupon[]>('/v1/operation/user/coupons', { params })
 }
 
+// 优惠券试算
+export const calculateCouponDiscount = (data: {
+  coupon_code: string
+  original_amount: number
+}) => {
+  return request.post<{
+    original_amount: number
+    discount_amount: number
+    final_amount: number
+  }>('/v1/operation/coupons/calculate', data)
+}
+
 // 推广管理
 export const getReferralCode = () => {
   return request.get<{ referral_code: string }>('/v1/operation/referral/code')
@@ -222,6 +236,31 @@ export const getReferralRecords = (params?: {
 
 export const getReferralStatistics = () => {
   return request.get<ReferralStatistics>('/v1/operation/referral/statistics')
+}
+
+export const approveReferral = (recordId: number, rewardAmount?: number) => {
+  return request.post(`/v1/operation/referral/${recordId}/approve`, rewardAmount != null ? { reward_amount: rewardAmount } : {})
+}
+
+export const approveReferralsBatch = (recordIds: number[], rewardAmount?: number) => {
+  return request.post('/v1/operation/referral/approve-batch', {
+    record_ids: recordIds,
+    reward_amount: rewardAmount,
+  })
+}
+
+export const getReferralRule = () => {
+  return request.get<{ reward_type: string; credits_rate: number; register_credits: number; coupon_id: number | null; is_enabled: boolean }>('/v1/operation/referral/rule')
+}
+
+export const updateReferralRule = (data: {
+  reward_type: string
+  credits_rate?: number
+  register_credits?: number
+  coupon_id?: number | null
+  is_enabled?: boolean
+}) => {
+  return request.put('/v1/operation/referral/rule', data)
 }
 
 // 数据统计

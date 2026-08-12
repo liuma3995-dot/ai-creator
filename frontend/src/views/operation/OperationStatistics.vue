@@ -166,13 +166,13 @@
           <el-table :data="revenueDetails" stripe>
             <el-table-column prop="date" label="日期" width="120"/>
             <el-table-column prop="recharge_amount" label="充值金额" width="120">
-              <template #default="{ row }">¥{{ row.recharge_amount.toFixed(2) }}</template>
+              <template #default="{ row }">¥{{ Number(row.recharge_amount || 0).toFixed(2) }}</template>
             </el-table-column>
             <el-table-column prop="membership_amount" label="会员收入" width="120">
-              <template #default="{ row }">¥{{ row.membership_amount.toFixed(2) }}</template>
+              <template #default="{ row }">¥{{ Number(row.membership_amount || 0).toFixed(2) }}</template>
             </el-table-column>
             <el-table-column prop="total_amount" label="总收入" width="120">
-              <template #default="{ row }">¥{{ row.total_amount.toFixed(2) }}</template>
+              <template #default="{ row }">¥{{ Number(row.total_amount || 0).toFixed(2) }}</template>
             </el-table-column>
             <el-table-column prop="order_count" label="订单数" width="100"/>
           </el-table>
@@ -343,7 +343,38 @@ const initCharts = (data: any) => {
 }
 
 const exportData = () => {
-  ElMessage.info('导出功能开发中...')
+  const toCsv = (rows: any[]) => {
+    if (!rows.length) return ''
+    const headers = Object.keys(rows[0])
+    const lines = rows.map((row) =>
+      headers.map((h) => {
+        const v = row[h]
+        return v == null ? '' : `"${String(v).replace(/"/g, '""')}"`
+      }).join(',')
+    )
+    return [headers.join(','), ...lines].join('\n')
+  }
+  const parts = [
+    ['收入明细', toCsv(revenueDetails.value)],
+    ['用户数据', toCsv(userDetails.value)],
+    ['创作数据', toCsv(creationDetails.value)],
+  ]
+  const content = parts
+    .filter(([, csv]) => csv)
+    .map(([title, csv]) => `\uFEFF${title}\n${csv}`)
+    .join('\n\n')
+  if (!content.replace(/\uFEFF/g, '').trim()) {
+    ElMessage.warning('暂无可导出的数据')
+    return
+  }
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `运营数据统计_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('导出成功')
 }
 
 onMounted(() => {

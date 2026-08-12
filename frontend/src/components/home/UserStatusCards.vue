@@ -64,6 +64,7 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { Coin, Present, Trophy } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
@@ -91,6 +92,13 @@ const formatDate = (date: string | undefined) => {
   if (!date) return '未知'
   return new Date(date).toLocaleDateString('zh-CN')
 }
+
+onMounted(() => {
+  // 首页“我的积分”统一走 store 刷新入口，保证打开首页时显示最新积分
+  if (userStore.isLoggedIn) {
+    userStore.refreshCredits()
+  }
+})
 </script>
 
 <style scoped lang="scss">

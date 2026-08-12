@@ -175,14 +175,14 @@ async def unified_payment_callback(
             db,
             callback_data.order_no,
             transaction_id,
-            'success'
+            'paid'
         )
     else:  # membership
         success = MembershipService.process_payment_callback(
             db,
             callback_data.order_no,
             transaction_id,
-            'success'
+            'paid'
         )
     
     return success_response(data={"success": success})
