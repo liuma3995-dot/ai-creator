@@ -454,7 +454,7 @@ const handlePublish = async () => {
         creation_id: publishForm.creationId!,
         content_type: publishForm.contentType,
         scheduled_at: publishForm.publishType === 'scheduled' && publishForm.scheduledAt ? publishForm.scheduledAt.toISOString() : undefined,
-        title: selectedCreation.value.title,
+        title: selectedCreation.value?.title,
         content: raw,
         rendered_content: renderForWechat(raw, selectedTemplate.value),
         template_id: publishForm.templateId
@@ -515,7 +515,10 @@ const handleBind = async () => {
         ElMessage.success('授权成功，已自动获取 Cookie')
       } else {
         const cookies = parseCookiesInput(bindForm.cookies)
-        if (!cookies) return ElMessage.error('Cookie 格式错误，请粘贴对象格式、浏览器扩展导出的数组格式或标准 Cookie 字符串');
+        if (!cookies) {
+          ElMessage.error('Cookie 格式错误，请粘贴对象格式、浏览器扩展导出的数组格式或标准 Cookie 字符串')
+          return
+        }
         // 刷新账号列表，避免上次绑定失败留下的半成品账号导致“账号已存在”400
         await loadPlatformAccounts()
         const existing = platformAccounts.value.find(
@@ -544,7 +547,10 @@ const handleUpdateCookies = async () => {
     updatingCookies.value = true;
     try {
       const cookies = parseCookiesInput(cookieForm.cookies)
-      if (!cookies) return ElMessage.error('Cookie 格式错误，请粘贴对象格式、浏览器扩展导出的数组格式或标准 Cookie 字符串');
+    if (!cookies) {
+      ElMessage.error('Cookie 格式错误，请粘贴对象格式、浏览器扩展导出的数组格式或标准 Cookie 字符串')
+      return
+    }
       const r = await updatePlatformCookies(cookieForm.accountId, cookies);
       r.valid ? ElMessage.success('Cookie 更新成功') : ElMessage.warning(r.message || 'Cookie 更新失败');
       showCookieDialog.value = false;

@@ -171,15 +171,16 @@ class LangChainService:
         """
         messages = self._build_messages(message, system_prompt, history)
         monitor_callbacks = self._build_callbacks()
+        config = None
         if monitor_callbacks:
             user_callbacks = kwargs.pop("callbacks", None)
             if user_callbacks:
-                kwargs["callbacks"] = list(user_callbacks) + monitor_callbacks
+                config = {"callbacks": list(user_callbacks) + monitor_callbacks}
             else:
-                kwargs["callbacks"] = monitor_callbacks
+                config = {"callbacks": monitor_callbacks}
         
         try:
-            response = await self._chat_model.ainvoke(messages, **kwargs)
+            response = await self._chat_model.ainvoke(messages, config=config, **kwargs)
             
             return ChatResponse(
                 content=response.content if isinstance(response.content, str) else "",
@@ -231,12 +232,13 @@ class LangChainService:
         # 构建消息
         messages = self._build_messages(message, system_prompt, history)
         monitor_callbacks = self._build_callbacks()
+        config = None
         if monitor_callbacks:
             user_callbacks = kwargs.pop("callbacks", None)
             if user_callbacks:
-                kwargs["callbacks"] = list(user_callbacks) + monitor_callbacks
+                config = {"callbacks": list(user_callbacks) + monitor_callbacks}
             else:
-                kwargs["callbacks"] = monitor_callbacks
+                config = {"callbacks": monitor_callbacks}
         
         # 工具调用循环
         iteration = 0
@@ -246,7 +248,7 @@ class LangChainService:
             logger.debug(f"Tool call iteration {iteration}")
             
             # 调用 LLM
-            response: AIMessage = await model_with_tools.ainvoke(messages, **kwargs)
+            response: AIMessage = await model_with_tools.ainvoke(messages, config=config, **kwargs)
             
             # 检查是否有工具调用
             if not response.tool_calls:

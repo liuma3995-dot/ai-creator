@@ -194,8 +194,8 @@ const activityForm = reactive({
   reward_type: 'credit',
   reward_amount: 0,
   couponId: undefined as number | undefined,
-  start_time: '',
-  end_time: '',
+  start_time: '' as string | Date,
+  end_time: '' as string | Date,
   max_participants: undefined as number | undefined,
   budget: undefined as number | undefined,
   target_users: '',
@@ -308,7 +308,7 @@ const saveActivity = async () => {
         return
       }
     }
-    const payload = {
+    const payload: any = {
       ...activityForm,
       budget: activityForm.budget ?? undefined,
       target_users,

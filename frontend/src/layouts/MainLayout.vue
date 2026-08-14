@@ -299,10 +299,7 @@ import {
   Picture,
   Setting,
   SwitchButton,
-  TrendCharts,
   Upload,
-  User,
-  UserFilled,
   VideoCamera,
   Wallet,
 } from '@element-plus/icons-vue'

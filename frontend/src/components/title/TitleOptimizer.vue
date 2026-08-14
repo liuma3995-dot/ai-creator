@@ -166,7 +166,6 @@ import {
   optimizeTitle,
   analyzeTitle,
   PlatformType,
-  TitleStyle,
   STYLE_LABELS,
   getScoreColor,
   getScoreLabel,

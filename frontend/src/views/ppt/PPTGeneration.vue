@@ -533,6 +533,7 @@ const handleGenerateOutline = async () => {
     editableOutline.value = JSON.parse(JSON.stringify(res.data))
     currentStep.value = 'edit'
     ElMessage.success('大纲生成成功')
+    userStore.refreshCredits()
     
     loadHistory()
   } catch (e: any) {
@@ -591,6 +592,7 @@ const handleGeneratePPT = async () => {
     localStorage.setItem('pptist_aippt_data', JSON.stringify(aipptData))
     
     ElMessage.success('内容已丰富，正在跳转到编辑器...')
+    userStore.refreshCredits()
     
     // 5. 跳转到编辑器
     router.push('/ppt/editor')

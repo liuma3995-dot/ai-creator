@@ -299,6 +299,35 @@ class WritingService:
             api_secret=getattr(ai_model, 'api_secret', None),
             group_id=getattr(ai_model, 'group_id', None),
         )
+
+    @staticmethod
+    def _inject_supplement(prompt: str, supplement: str) -> str:
+        """将用户补充说明注入提示词，使其优先于模板默认要求"""
+        import re
+
+        supplement = supplement.strip()
+        # 用户明确指定字数时：改用极简模式，仅保留主题/关键词与用户要求，
+        # 避免模板的结构与默认字数要求压制用户指令
+        if re.search(r"字数.{0,20}?\d+\s*字", supplement):
+            topic_match = re.search(r"主题[:：]\s*([^\n]+)", prompt)
+            keyword_match = re.search(r"关键词[:：]\s*([^\n]+)", prompt)
+            base_info = ""
+            if topic_match:
+                base_info += f"主题：{topic_match.group(1).strip()}\n"
+            if keyword_match:
+                base_info += f"关键词：{keyword_match.group(1).strip()}\n"
+            return (
+                f"请根据以下信息创作内容，必须严格遵守【用户特殊要求】。\n\n"
+                f"{base_info}"
+                f"【用户特殊要求】（最高优先级，必须严格遵守）\n{supplement}\n\n"
+                f"请直接输出内容，不要任何多余说明。"
+            )
+        # 补充说明作为最高优先级要求，置于提示词最前面
+        return (
+            f"【用户特殊要求】（最高优先级，必须严格遵守；与下方默认要求冲突时，一律以本条为准）\n"
+            f"{supplement}\n\n"
+            f"{prompt}"
+        )
     
     # 各工具类型的默认参数值
     TOOL_DEFAULTS = {
@@ -419,9 +448,9 @@ class WritingService:
         except KeyError as e:
             raise ValueError(f"缺少必需的输入参数: {str(e)}")
         
-        # 如果用户提供了补充说明，追加到提示词末尾
+        # 如果用户提供了补充说明，注入为最高优先级要求
         if additional_description and additional_description.strip():
-            prompt += f"\n\n【用户补充说明】\n{additional_description.strip()}"
+            prompt = cls._inject_supplement(prompt, additional_description)
         
         # 调用 LangChain 服务生成内容
         service = cls.get_langchain_service(
@@ -455,6 +484,7 @@ class WritingService:
         optimization_prompts = {
             "seo": f"请对以下内容进行SEO优化，提高搜索引擎友好度：\n\n{content}",
             "readability": f"请优化以下内容的可读性，使其更易理解：\n\n{content}",
+            "style": f"请在不改变原意的前提下调整以下内容的文风，使其更自然、更有感染力，并符合目标场景的表达习惯：\n\n{content}",
             "engagement": f"请优化以下内容，提高用户参与度和互动性：\n\n{content}",
             "concise": f"请精简以下内容，保留核心信息：\n\n{content}",
             "expand": f"请扩展以下内容，增加细节和深度：\n\n{content}"
@@ -519,9 +549,9 @@ class WritingService:
         except KeyError as e:
             raise ValueError(f"缺少必需的输入参数: {str(e)}")
         
-        # 如果用户提供了补充说明，追加到提示词末尾
+        # 如果用户提供了补充说明，注入为最高优先级要求
         if additional_description and additional_description.strip():
-            prompt += f"\n\n【用户补充说明】\n{additional_description.strip()}"
+            prompt = cls._inject_supplement(prompt, additional_description)
         
         # 使用Cookie服务调用AI
         manager = CookieAIServiceManager(db)
@@ -567,6 +597,7 @@ class WritingService:
         optimization_prompts = {
             "seo": f"请对以下内容进行SEO优化，提高搜索引擎友好度：\n\n{content}",
             "readability": f"请优化以下内容的可读性，使其更易理解：\n\n{content}",
+            "style": f"请在不改变原意的前提下调整以下内容的文风，使其更自然、更有感染力，并符合目标场景的表达习惯：\n\n{content}",
             "engagement": f"请优化以下内容，提高用户参与度和互动性：\n\n{content}",
             "concise": f"请精简以下内容，保留核心信息：\n\n{content}",
             "expand": f"请扩展以下内容，增加细节和深度：\n\n{content}"
@@ -747,9 +778,9 @@ class WritingService:
         except KeyError as e:
             raise ValueError(f"缺少必需的输入参数: {str(e)}")
         
-        # 如果用户提供了补充说明，追加到提示词末尾
+        # 如果用户提供了补充说明，注入为最高优先级要求
         if additional_description and additional_description.strip():
-            base_prompt += f"\n\n【用户补充说明】\n{additional_description.strip()}"
+            base_prompt = cls._inject_supplement(base_prompt, additional_description)
         
         # 检测补充说明中是否有URL
         has_url = False

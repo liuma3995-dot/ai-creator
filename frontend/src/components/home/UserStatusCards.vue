@@ -33,7 +33,7 @@
             <el-button v-if="userStore.user?.membership_type === 'free'" type="warning" size="small" @click="goToMembership">
               开通会员
             </el-button>
-            <div v-else class="expire-info">到期时间：{{ formatDate(userStore.user?.member_expires_at) }}</div>
+            <div v-else class="expire-info">到期时间：{{ formatDate(userStore.user?.member_expired_at ?? undefined) }}</div>
           </div>
           <div v-else class="card-content">
             <div class="member-status">

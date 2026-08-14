@@ -225,7 +225,7 @@ const renderTrendChart = () => {
   const pvData = dailyStats.value.map(item => item.pv)
   const uvData = dailyStats.value.map(item => item.uv)
 
-  const option: echarts.EChartOption = {
+  const option: echarts.EChartsOption = {
     tooltip: {
       trigger: 'axis'
     },

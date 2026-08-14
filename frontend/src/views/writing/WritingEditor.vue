@@ -207,7 +207,10 @@ import TitleGenerator from '@/components/title/TitleGenerator.vue'
 import ImagePicker from '@/components/image/ImagePicker.vue'
 import { getToolFormConfig } from '@/config/writingToolForms'
 import { useHotspotWritingStore } from '@/store/hotspotWriting'
+import { useUserStore } from '@/store/user'
 import type { AIModel, Creation } from '@/types'
+
+const userStore = useUserStore()
 import type { ImageItem } from '@/api/imageStock'
 
 const router = useRouter()
@@ -405,6 +408,7 @@ const handleGenerate = async () => {
     currentCreation.value = res
     markdownContent.value = res.output_content || res.content || ''
     ElMessage.success('生成成功')
+    userStore.refreshCredits()
   } catch (error: any) {
     ElMessage.error(error.message || '生成失败')
   } finally {
@@ -480,10 +484,12 @@ const handleRegenerate = async () => {
   if (!currentCreation.value) return
   generating.value = true
   try {
-    const res = await regenerateContent(currentCreation.value.id)
+    const params = dynamicFormRef.value?.getFormData() || {}
+    const res = await regenerateContent(currentCreation.value.id, params)
     currentCreation.value = res
     markdownContent.value = res.output_content || res.content || ''
     ElMessage.success('重新生成成功')
+    userStore.refreshCredits()
   } catch (error: any) {
     ElMessage.error(error.message || '重新生成失败')
   } finally {
@@ -503,6 +509,7 @@ const handleOptimize = async () => {
     markdownContent.value = res.output_content || res.content || ''
     showOptimizeDialog.value = false
     ElMessage.success('优化成功')
+    userStore.refreshCredits()
   } catch (error: any) {
     ElMessage.error(error.message || '优化失败')
   } finally {
@@ -581,7 +588,7 @@ const loadModels = async () => {
 const loadCreationForEdit = async (id: string) => {
   try {
     const res = await getCreation(parseInt(id))
-    const creation = res.data || res
+    const creation = res
     currentCreation.value = creation
     markdownContent.value = creation.output_content || creation.content || ''
     const params = creation.input_params || creation.metadata || creation.input_data || {}

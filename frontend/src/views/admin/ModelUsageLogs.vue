@@ -172,7 +172,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getUsageLogs, getUsageLogDetail, getUsageStats, type UsageLogItem, type UsageStats } from '@/api/modelUsage'
+import { getUsageLogs, getUsageStats, type UsageLogItem, type UsageStats } from '@/api/modelUsage'
 
 const loadingStats = ref(false)
 const loadingLogs = ref(false)

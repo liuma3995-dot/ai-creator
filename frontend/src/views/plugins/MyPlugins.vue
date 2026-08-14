@@ -183,7 +183,7 @@ const hasConfigSchema = computed(() => {
   return schema.properties && Object.keys(schema.properties).length > 0
 })
 
-const configProperties = computed(() => {
+const configProperties = computed<Record<string, any>>(() => {
   return currentPlugin.value?.config_schema?.properties || {}
 })
 

@@ -223,7 +223,7 @@ const getToolIcon = (toolType: string) => toolIconMap[toolType] || Document
 const getToolColor = (toolType: string) => toolColorMap[toolType] || '#409eff'
 const getToolTagType = (toolType: string): '' | 'success' | 'info' | 'warning' | 'danger' => {
   const map: Record<string, '' | 'success' | 'info' | 'warning' | 'danger'> = {
-    wechat_article: 'success', xiaohongshu_note: 'danger', official_document: 'primary', marketing_copy: 'warning', academic_paper: 'info', press_release: 'success', video_script: 'warning', story_novel: '', business_plan: 'primary', work_report: 'primary', resume: 'success', lesson_plan: 'warning', content_rewrite: 'info', translation: 'primary',
+    wechat_article: 'success', xiaohongshu_note: 'danger', official_document: '', marketing_copy: 'warning', academic_paper: 'info', press_release: 'success', video_script: 'warning', story_novel: '', business_plan: '', work_report: '', resume: 'success', lesson_plan: 'warning', content_rewrite: 'info', translation: '',
     image: '', video: 'info', ppt: 'warning'
   }
   return map[toolType] || ''

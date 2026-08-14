@@ -189,7 +189,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Download, Star } from '@element-plus/icons-vue'
+import { Download, Star } from '@element-plus/icons-vue'
 import * as Icons from '@element-plus/icons-vue'
 import {
   getPluginMarket,
@@ -227,7 +227,7 @@ const hasConfigSchema = computed(() => {
   return schema.properties && Object.keys(schema.properties).length > 0
 })
 
-const configProperties = computed(() => {
+const configProperties = computed<Record<string, any>>(() => {
   return currentPlugin.value?.config_schema?.properties || {}
 })
 

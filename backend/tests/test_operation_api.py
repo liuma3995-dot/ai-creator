@@ -231,6 +231,23 @@ class TestCouponAPI:
         assert data["discount_amount"] == 10.0
         assert data["final_amount"] == 90.0
 
+    def test_use_coupon_updates_usage_status(self, client, db_session, auth_headers):
+        coupon = _make_coupon(db_session, code="USEAPI12", discount_type="percent", discount_value=10)
+        client.post(f"/api/v1/operation/coupons/{coupon.id}/receive", headers=auth_headers)
+        r = client.post(
+            "/api/v1/operation/coupons/use",
+            json={"coupon_code": "USEAPI12", "order_type": "recharge", "amount": 100},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+
+        listed = client.get("/api/v1/operation/coupons", headers=auth_headers)
+        assert listed.status_code == 200
+        items = listed.json()["data"]["items"]
+        target = next(item for item in items if item["code"] == "USEAPI12")
+        assert target["used_quantity"] == 1
+        assert target["total_quantity"] == coupon.total_quantity
+
     def test_use_coupon_not_owned(self, client, db_session, auth_headers):
         _make_coupon(db_session, code="USEAPI11", discount_type="percent", discount_value=10)
         r = client.post(

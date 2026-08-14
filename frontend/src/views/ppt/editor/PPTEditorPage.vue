@@ -109,19 +109,6 @@ const sendSlidesToIframe = (slides: any) => {
   }
 }
 
-const sendTemplateToIframe = (template: any) => {
-  if (iframeRef.value && iframeReady.value) {
-    loading.value = true
-    loadingTip.value = '正在加载模板...'
-    // ppt_layout数据格式是 { slides, ... }，直接发送给iframe
-    const slides = template.slides || template
-    iframeRef.value.contentWindow?.postMessage({
-      type: 'LOAD_SLIDES',
-      data: { slides }
-    }, '*')
-  }
-}
-
 const onIframeLoad = () => {
   console.log('PPTist iframe loaded')
 }

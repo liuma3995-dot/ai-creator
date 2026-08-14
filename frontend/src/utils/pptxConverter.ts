@@ -44,7 +44,7 @@ export interface PPTistJSON {
 export async function convertPPTXToJSON(arrayBuffer: ArrayBuffer): Promise<PPTistJSON> {
   try {
     const result = await parse(arrayBuffer)
-    return result as PPTistJSON
+    return result as unknown as PPTistJSON
   } catch (error) {
     console.error('PPTX解析失败:', error)
     throw new Error('PPTX文件解析失败，请确保文件格式正确')

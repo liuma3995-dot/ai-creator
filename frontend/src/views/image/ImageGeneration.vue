@@ -181,7 +181,10 @@ import { ElMessage } from 'element-plus'
 import { Loading, VideoPlay, Download, Picture, ArrowDown } from '@element-plus/icons-vue'
 import request from '@/api/request'
 import { getAIModels } from '@/api/models'
+import { useUserStore } from '@/store/user'
 import type { AIModel } from '@/types'
+
+const userStore = useUserStore()
 
 interface GalleryItem {
   id: number
@@ -246,6 +249,7 @@ const pollTaskStatus = async (taskIdValue: string) => {
       generating.value = false
       stopPolling()
       ElMessage.success('图片生成完成')
+      userStore.refreshCredits()
       loadGallery()
     } else if (status === 'failed') {
       generating.value = false
@@ -283,6 +287,7 @@ const handleGenerate = async () => {
       num_images: form.num_images,
     })
     taskId.value = res.data.task_id
+    userStore.refreshCredits()
     
     if (res.data.status === 'completed' && res.data.images?.length) {
       images.value = res.data.images

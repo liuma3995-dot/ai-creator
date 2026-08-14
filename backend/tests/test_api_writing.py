@@ -83,62 +83,177 @@ class TestWritingAPI:
         assert response.status_code == 422
     
     @patch('app.services.writing_service.WritingService.generate_content')
-    def test_regenerate_content(self, mock_generate, client, auth_headers, db_session, test_user):
-        """测试重新生成内容"""
-        from app.models.creation import Creation
-        
-        # 创建一个创作记录
-        creation = Creation(
-            user_id=test_user.id,
-            tool_type="wechat_article",
-            title="原标题",
-            content="原内容",
-            prompt="原提示词",
-            status="completed"
-        )
-        db_session.add(creation)
+    def test_regenerate_content_with_parameters(self, mock_generate, client, auth_headers, db_session, test_user):
+        """测试重新生成携带当前表单参数（含补充说明）"""
+        from app.models.user import User
+
+        test_user.credits = 100
         db_session.commit()
-        db_session.refresh(creation)
-        
-        mock_generate.return_value = {
-            "title": "新标题",
-            "content": "新内容",
-            "metadata": {"word_count": 150}
-        }
-        
+        creation = self._make_creation_with_model(db_session, test_user)
+
+        async def fake_generate(*args, **kwargs):
+            return "重新生成内容"
+
+        mock_generate.side_effect = fake_generate
+
         response = client.post(
-            f"/api/v1/writing/{creation.id}/regenerate",
-            headers=auth_headers
+            f"/api/v1/writing/creations/{creation.id}/regenerate",
+            headers=auth_headers,
+            json={
+                "parameters": {
+                    "topic": "AI主题",
+                    "additional_description": "字数要求：不少于500字",
+                }
+            },
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["data"]["title"] == "新标题"
+        assert data["id"] == creation.id
+        assert data["output_content"] == "重新生成内容"
+
+        # 校验补充说明确实传入了生成服务
+        user_input = mock_generate.call_args.kwargs["user_input"]
+        assert user_input.get("additional_description") == "字数要求：不少于500字"
+
+        # 积分扣减（非会员每次10积分）
+        refreshed = db_session.query(User).filter(User.id == test_user.id).first()
+        assert refreshed.credits == 90
+
+    @patch('app.services.writing_service.WritingService.generate_content')
+    def test_regenerate_content_fallback_to_saved_input(self, mock_generate, client, auth_headers, db_session, test_user):
+        """测试不传参数时回退到已保存的输入数据"""
+        test_user.credits = 100
+        db_session.commit()
+        creation = self._make_creation_with_model(db_session, test_user)
+        creation.input_data = {"topic": "旧主题", "additional_description": "旧补充说明"}
+        db_session.commit()
+
+        async def fake_generate(*args, **kwargs):
+            return "内容"
+
+        mock_generate.side_effect = fake_generate
+
+        response = client.post(
+            f"/api/v1/writing/creations/{creation.id}/regenerate",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        user_input = mock_generate.call_args.kwargs["user_input"]
+        assert user_input.get("additional_description") == "旧补充说明"
     
-    def test_optimize_content(self, client, auth_headers, db_session, test_user):
-        """测试优化内容"""
-        from app.models.creation import Creation
-        
+    def _make_creation_with_model(self, db_session, test_user):
+        """构造带模型的创作记录"""
+        from app.models.creation import Creation, CreationType
+        from app.models.ai_model import AIModel
+
+        ai_model = AIModel(
+            user_id=test_user.id,
+            name="测试模型",
+            provider="openai",
+            model_name="gpt-4o-mini",
+            api_key="test-key",
+        )
+        db_session.add(ai_model)
+        db_session.commit()
+        db_session.refresh(ai_model)
+
         creation = Creation(
             user_id=test_user.id,
+            creation_type=CreationType.WECHAT_ARTICLE,
             tool_type="wechat_article",
             title="测试",
-            content="内容",
-            prompt="提示词",
-            status="completed"
+            output_content="原内容",
+            model_id=ai_model.id,
+            status="completed",
         )
         db_session.add(creation)
         db_session.commit()
         db_session.refresh(creation)
-        
+        return creation
+
+    @patch('app.services.writing_service.WritingService.optimize_content')
+    def test_optimize_content_multi_types(self, mock_optimize, client, auth_headers, db_session, test_user):
+        """测试多类型顺序优化内容"""
+        from app.models.user import User
+
+        test_user.credits = 100
+        db_session.commit()
+        creation = self._make_creation_with_model(db_session, test_user)
+
+        mock_optimize.return_value = "优化后的内容"
+
         response = client.post(
             f"/api/v1/writing/{creation.id}/optimize",
             headers=auth_headers,
-            json={
-                "optimization_type": "seo"
-            }
+            json={"optimize_types": ["seo", "style"]},
         )
-        # 这个测试可能需要mock AI服务
-        assert response.status_code in [200, 500]  # 500是因为可能没有配置AI服务
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == creation.id
+        assert data["output_content"] == "优化后的内容"
+        assert mock_optimize.call_count == 2
+
+        # 积分应扣减（非会员每次优化10积分）
+        refreshed = db_session.query(User).filter(User.id == test_user.id).first()
+        assert refreshed.credits == 90
+
+    @patch('app.services.writing_service.WritingService.optimize_content')
+    def test_optimize_content_single_type(self, mock_optimize, client, auth_headers, db_session, test_user):
+        """测试兼容单类型 optimization_type 参数"""
+        test_user.credits = 100
+        db_session.commit()
+        creation = self._make_creation_with_model(db_session, test_user)
+
+        mock_optimize.return_value = "SEO优化后的内容"
+
+        response = client.post(
+            f"/api/v1/writing/{creation.id}/optimize",
+            headers=auth_headers,
+            json={"optimization_type": "seo"},
+        )
+        assert response.status_code == 200
+        assert response.json()["output_content"] == "SEO优化后的内容"
+        assert mock_optimize.call_count == 1
+
+    def test_optimize_content_not_found(self, client, auth_headers):
+        """测试优化不存在的创作"""
+        response = client.post(
+            "/api/v1/writing/99999/optimize",
+            headers=auth_headers,
+            json={"optimize_types": ["seo"]},
+        )
+        assert response.status_code == 404
+
+    def test_optimize_content_missing_type(self, client, auth_headers, db_session, test_user):
+        """测试未选择优化类型"""
+        creation = self._make_creation_with_model(db_session, test_user)
+        response = client.post(
+            f"/api/v1/writing/{creation.id}/optimize",
+            headers=auth_headers,
+            json={},
+        )
+        assert response.status_code == 400
+
+    @patch('app.services.writing_service.WritingService.optimize_content')
+    def test_optimize_content_invalid_type(self, mock_optimize, client, auth_headers, db_session, test_user):
+        """测试不支持的优化类型返回400并退还积分"""
+        from app.models.user import User
+
+        test_user.credits = 100
+        db_session.commit()
+        creation = self._make_creation_with_model(db_session, test_user)
+
+        mock_optimize.side_effect = ValueError("不支持的优化类型: xxx")
+
+        response = client.post(
+            f"/api/v1/writing/{creation.id}/optimize",
+            headers=auth_headers,
+            json={"optimize_types": ["xxx"]},
+        )
+        assert response.status_code == 400
+
+        refreshed = db_session.query(User).filter(User.id == test_user.id).first()
+        assert refreshed.credits == 100
     
     def test_get_creation_detail(self, client, auth_headers, db_session, test_user):
         """测试获取创作详情"""

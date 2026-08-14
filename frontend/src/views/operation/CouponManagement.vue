@@ -208,7 +208,7 @@ const loadCoupons = async () => {
     }
     const response = await operationApi.getCoupons(params)
     coupons.value = response.data.items
-    pagination.total = response.data.length
+    pagination.total = response.data.total
   } catch (error) {
     ElMessage.error('加载优惠券列表失败')
   }

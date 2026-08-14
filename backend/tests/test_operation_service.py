@@ -329,6 +329,23 @@ class TestCouponService:
         with pytest.raises(BusinessException, match="已使用或已过期"):
             CouponService.use_coupon(db_session, user_coupon.id, Decimal("100"))
 
+    def test_use_coupon_increments_used_quantity(self, db_session, test_user):
+        coupon = _make_coupon(db_session)
+        user_coupon = _make_user_coupon(db_session, coupon, test_user)
+        assert coupon.used_quantity == 0
+
+        CouponService.use_coupon(db_session, user_coupon.id, Decimal("100"))
+        refreshed = db_session.query(Coupon).filter(Coupon.id == coupon.id).first()
+        assert refreshed.used_quantity == 1
+
+    def test_mark_order_coupon_used_increments_used_quantity(self, db_session, test_user):
+        coupon = _make_coupon(db_session)
+        _make_user_coupon(db_session, coupon, test_user)
+
+        CouponService.mark_order_coupon_used(db_session, test_user.id, coupon.code, 1)
+        refreshed = db_session.query(Coupon).filter(Coupon.id == coupon.id).first()
+        assert refreshed.used_quantity == 1
+
 
 class TestOperationServiceCoupon:
     """OperationService 优惠券相关方法测试"""
@@ -358,6 +375,18 @@ class TestOperationServiceCoupon:
         assert result["discount_amount"] == 10.0
         assert result["final_amount"] == 90.0
         assert result["coupon_code"] == "USE10"
+
+    async def test_use_coupon_by_code_updates_used_quantity(self, db_session, test_user):
+        coupon = _make_coupon(db_session, code="USE11", discount_type="percent", discount_value=Decimal("10"))
+        CouponService.receive_coupon(db_session, coupon.id, test_user.id)
+        svc = OperationService(db_session)
+        await svc.use_coupon(test_user.id, {
+            "coupon_code": "USE11",
+            "order_type": "recharge",
+            "amount": Decimal("100"),
+        })
+        refreshed = db_session.query(Coupon).filter(Coupon.id == coupon.id).first()
+        assert refreshed.used_quantity == 1
 
 
 class TestReferralService:
@@ -450,6 +479,133 @@ class TestOperationServiceStatistics:
             end_date=datetime.now() + timedelta(days=1),
         )
         assert result["new_users"] == 1
+
+    async def test_get_statistics_end_date_inclusive(self, db_session):
+        """截止日期当天数据应被统计（闭区间）"""
+        from app.models.creation import Creation, CreationType
+        from app.models.credit import PaymentStatus, RechargeOrder
+
+        user = _make_user(db_session, "incuser", "inc@example.com")
+        end_day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        db_session.add(Creation(
+            user_id=user.id,
+            creation_type=CreationType.WECHAT_ARTICLE,
+            title="截止日创作",
+            created_at=end_day + timedelta(hours=10),
+        ))
+        db_session.add(RechargeOrder(
+            order_no="INC0001",
+            user_id=user.id,
+            amount=Decimal("50"),
+            credits=50,
+            payment_status=PaymentStatus.PAID,
+            created_at=end_day + timedelta(hours=10),
+        ))
+        db_session.commit()
+
+        svc = OperationService(db_session)
+        result = await svc.get_statistics(
+            start_date=end_day - timedelta(days=1),
+            end_date=end_day,
+        )
+        assert result["generation_count"] == 1
+        assert result["recharge_amount"] == 50.0
+        assert result["new_users"] == 1
+
+    async def test_get_statistics_total_members_date_filtered(self, db_session):
+        """会员数应随日期区间变化（按区间内已支付会员订单去重）"""
+        from app.models.credit import MembershipOrder, MembershipType, PaymentStatus
+
+        user = _make_user(db_session, "memberuser", "member@example.com")
+        start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=7)
+        db_session.add(MembershipOrder(
+            order_no="MEM0001",
+            user_id=user.id,
+            membership_type=MembershipType.MONTHLY,
+            amount=Decimal("30"),
+            payment_status=PaymentStatus.PAID,
+            created_at=start + timedelta(days=3),
+        ))
+        db_session.commit()
+
+        svc = OperationService(db_session)
+        inside = await svc.get_statistics(start_date=start, end_date=start + timedelta(days=5))
+        assert inside["total_members"] == 1
+
+        outside = await svc.get_statistics(
+            start_date=start - timedelta(days=10),
+            end_date=start - timedelta(days=5),
+        )
+        assert outside["total_members"] == 0
+
+    async def test_get_statistics_weekly_buckets(self, db_session):
+        """weekly 粒度按自然周（周一为起点）聚合"""
+        from app.models.creation import Creation, CreationType
+
+        user = _make_user(db_session, "weekuser", "week@example.com")
+        monday = datetime(2026, 1, 5, 10, 0, 0)
+        db_session.add(Creation(
+            user_id=user.id, creation_type=CreationType.WECHAT_ARTICLE,
+            title="第一周", created_at=monday,
+        ))
+        db_session.add(Creation(
+            user_id=user.id, creation_type=CreationType.IMAGE,
+            title="第二周", created_at=monday + timedelta(days=7),
+        ))
+        db_session.commit()
+
+        svc = OperationService(db_session)
+        result = await svc.get_statistics(
+            start_date=monday,
+            end_date=monday + timedelta(days=7),
+            stat_type="weekly",
+        )
+        assert result["creations_trend"]["dates"] == ["2026-01-05", "2026-01-12"]
+        assert result["creations_trend"]["counts"] == [1, 1]
+        assert result["revenue_details"][0]["date"] == "2026-01-05"
+
+    async def test_get_statistics_monthly_buckets(self, db_session):
+        """monthly 粒度按月聚合"""
+        from app.models.creation import Creation, CreationType
+
+        user = _make_user(db_session, "monthuser", "month@example.com")
+        for dt in (datetime(2026, 1, 15, 10, 0), datetime(2026, 2, 3, 10, 0)):
+            db_session.add(Creation(
+                user_id=user.id, creation_type=CreationType.WECHAT_ARTICLE,
+                title="月度创作", created_at=dt,
+            ))
+        db_session.commit()
+
+        svc = OperationService(db_session)
+        result = await svc.get_statistics(
+            start_date=datetime(2026, 1, 1),
+            end_date=datetime(2026, 2, 28),
+            stat_type="monthly",
+        )
+        assert result["creations_trend"]["dates"] == ["2026-01", "2026-02"]
+        assert result["creations_trend"]["counts"] == [1, 1]
+
+    async def test_get_statistics_trend_percent_fields(self, db_session):
+        """环比趋势百分比字段为数值，上一区间为 0 且有收入时为 100"""
+        from app.models.credit import PaymentStatus, RechargeOrder
+
+        user = _make_user(db_session, "trenduser", "trend@example.com")
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        db_session.add(RechargeOrder(
+            order_no="TREND001",
+            user_id=user.id,
+            amount=Decimal("100"),
+            credits=100,
+            payment_status=PaymentStatus.PAID,
+            created_at=today + timedelta(hours=9),
+        ))
+        db_session.commit()
+
+        svc = OperationService(db_session)
+        result = await svc.get_statistics(start_date=today, end_date=today)
+        for key in ("revenue_trend_pct", "users_trend_pct", "members_trend_pct", "creations_trend_pct"):
+            assert isinstance(result[key], (int, float))
+        assert result["revenue_trend_pct"] == 100.0
 
     async def test_get_dashboard_statistics_empty(self, db_session):
         svc = OperationService(db_session)

@@ -187,7 +187,7 @@ export function setupScrollTracker() {
 }
 
 // 停留时长追踪
-let pageEnterTime = Date.now()
+const pageEnterTime = Date.now()
 
 export function trackPageLeave() {
     const stayDuration = (Date.now() - pageEnterTime) / 1000 // 转为秒

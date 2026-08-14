@@ -175,6 +175,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '@/store/user'
 import {
   getPlatforms,
   convertContent,
@@ -200,6 +201,7 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
+const userStore = useUserStore()
 
 // 状态
 const loading = ref(false)
@@ -297,6 +299,7 @@ const handleConvert = async () => {
 
     if (results.value.length > 0) {
       ElMessage.success('转换完成')
+      userStore.refreshCredits()
       emit('converted', results.value)
     }
   } catch (error: any) {

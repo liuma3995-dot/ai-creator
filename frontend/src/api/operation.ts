@@ -87,9 +87,13 @@ export interface ReferralStatistics {
 
 // 统计相关接口
 export interface OperationStatistics {
-  date: string
   new_users: number
   active_users: number
+  total_members: number
+  total_creations: number
+  total_revenue: number
+  user_retention_rate: number
+  referral_conversion_rate: number
   recharge_amount: number
   recharge_count: number
   membership_amount: number
@@ -100,6 +104,20 @@ export interface OperationStatistics {
   coupon_used: number
   referral_count: number
   referral_rewards: number
+  revenue_trend_pct: number
+  users_trend_pct: number
+  members_trend_pct: number
+  creations_trend_pct: number
+  revenue_trend: { dates: string[]; amounts: number[] }
+  users_trend: { dates: string[]; counts: number[] }
+  user_trend: { dates: string[]; new_users: number[]; active_users: number[] }
+  members_trend: { dates: string[]; counts: number[] }
+  creations_trend: { dates: string[]; counts: number[] }
+  revenue_details: Array<Record<string, any>>
+  user_details: Array<Record<string, any>>
+  creation_details: Array<Record<string, any>>
+  creation_distribution: Array<{ name: string; value: number }>
+  payment_distribution: Array<{ name: string; value: number }>
 }
 
 // 活动管理
@@ -109,7 +127,7 @@ export const getActivities = (params?: {
   status?: string
   activity_type?: string
 }) => {
-  return request.get<Activity[]>('/v1/operation/activities', { params })
+  return request.get<{ data: { items: Activity[]; total: number } }>('/v1/operation/activities', { params })
 }
 
 export const getActivity = (activityId: number) => {
@@ -158,7 +176,7 @@ export const getCoupons = (params?: {
   coupon_type?: string
   is_active?: boolean
 }) => {
-  return request.get<Coupon[]>('/v1/operation/coupons', { params })
+  return request.get<{ data: { items: Coupon[]; total: number } }>('/v1/operation/coupons', { params })
 }
 
 export const getCoupon = (couponId: number) => {
@@ -265,17 +283,22 @@ export const updateReferralRule = (data: {
 
 // 数据统计
 export const getOperationStatistics = (params?: {
+  stat_type?: string
   start_date?: string
   end_date?: string
 }) => {
-  return request.get<OperationStatistics[]>('/v1/operation/statistics', { params })
+  return request.get<{ data: OperationStatistics }>('/v1/operation/statistics', { params })
 }
 
 export const getDashboardStatistics = () => {
-  return request.get<{
-    today: OperationStatistics
-    yesterday: OperationStatistics
-    this_month: OperationStatistics
-    last_month: OperationStatistics
-  }>('/v1/operation/dashboard')
+  return request.get<{ data: {
+    total_users: number
+    today_new_users: number
+    total_creations: number
+    today_creations: number
+    total_members: number
+    total_revenue: number
+    today_revenue: number
+    active_users: number
+  } }>('/v1/operation/dashboard')
 }

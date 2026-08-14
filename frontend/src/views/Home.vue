@@ -32,13 +32,10 @@
 
 <script setup lang="ts">
 import { Check } from '@element-plus/icons-vue'
-import { useUserStore } from '@/store/user'
 import MembershipBenefits from '@/components/home/MembershipBenefits.vue'
 import StatsSection from '@/components/home/StatsSection.vue'
 import ToolsSection from '@/components/home/ToolsSection.vue'
 import UserStatusCards from '@/components/home/UserStatusCards.vue'
-
-const userStore = useUserStore()
 </script>
 
 <style scoped lang="scss">

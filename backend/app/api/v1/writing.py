@@ -4,17 +4,20 @@ AI写作相关API路由
 from typing import Any, List, Optional
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Body, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.exceptions import BusinessException
 from app.models.user import User
 from app.models.creation import Creation, CreationVersion
 from app.models.ai_model import AIModel
 from app.schemas.creation import (
     WritingToolInfo,
     CreationGenerate as WritingGenerateRequest,
+    CreationRegenerate as WritingRegenerateRequest,
+    CreationOptimize as WritingOptimizeRequest,
     CreationResponse as WritingGenerateResponse,
     CreationResponse,
     CreationListResponse,
@@ -157,10 +160,10 @@ async def generate_content(
             amount=credits_required,
             description=f"AI写作 - {request.tool_type}"
         )
-    except ValueError as e:
+    except BusinessException as e:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=str(e),
+            detail=e.detail,
         )
     
     try:
@@ -416,6 +419,7 @@ def get_creation_versions(
 @router.post("/creations/{creation_id}/regenerate", response_model=WritingGenerateResponse)
 async def regenerate_content(
     creation_id: int,
+    request: Optional[WritingRegenerateRequest] = Body(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Any:
@@ -443,10 +447,10 @@ async def regenerate_content(
             amount=credits_required,
             description=f"AI写作重新生成 - {creation.tool_type}"
         )
-    except ValueError as e:
+    except BusinessException as e:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=str(e),
+            detail=e.detail,
         )
     
     try:
@@ -462,8 +466,8 @@ async def regenerate_content(
                 detail="AI模型不存在或无权访问",
             )
         
-        # 使用原始输入数据重新生成
-        input_data = creation.input_data or {}
+        # 优先使用前端传入的当前表单参数（含补充说明），否则回退到已保存的输入数据
+        input_data = (request.parameters if request and request.parameters else None) or (creation.input_data or {})
         content = await WritingService.generate_content(
             db=db,
             tool_type=creation.tool_type,
@@ -494,6 +498,128 @@ async def regenerate_content(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"重新生成失败: {str(e)}",
+        )
+
+
+@router.post("/{creation_id}/optimize", response_model=WritingGenerateResponse)
+async def optimize_content(
+    creation_id: int,
+    request: WritingOptimizeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Any:
+    """
+    优化已生成内容
+
+    支持优化类型：seo（SEO优化）、readability（可读性）、style（文风调整）、
+    engagement（互动）、concise（精简）、expand（扩写）。
+    可通过 optimize_types 传多个类型，将按顺序依次优化。
+    """
+    creation = db.query(Creation).filter(
+        Creation.id == creation_id,
+        Creation.user_id == current_user.id,
+    ).first()
+
+    if not creation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="创作不存在",
+        )
+
+    # 归一化优化类型（兼容单类型 optimization_type 与多类型 optimize_types）
+    optimize_types = request.optimize_types or (
+        [request.optimization_type] if request.optimization_type else []
+    )
+    if not optimize_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请选择优化类型",
+        )
+
+    # 检查并扣减积分（会员不扣积分）
+    credits_required = 10  # 每次优化需要10积分
+
+    try:
+        CreditService.check_and_consume_credits(
+            db=db,
+            user_id=current_user.id,
+            amount=credits_required,
+            description=f"AI写作内容优化 - {creation.tool_type}",
+        )
+    except BusinessException as e:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=e.detail,
+        )
+
+    try:
+        # 获取AI模型
+        ai_model = db.query(AIModel).filter(
+            AIModel.id == creation.model_id,
+            AIModel.user_id == current_user.id,
+        ).first()
+
+        if not ai_model:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="AI模型不存在或无权访问",
+            )
+
+        content = creation.output_content or ""
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="创作内容为空，无法优化",
+            )
+
+        # 多类型按顺序优化：上一次结果作为下一次输入
+        for opt_type in optimize_types:
+            content = await WritingService.optimize_content(
+                db=db,
+                content=content,
+                optimization_type=opt_type,
+                ai_model=ai_model,
+                user_id=current_user.id,
+            )
+
+        # 更新创作记录
+        creation.output_content = content
+        db.commit()
+        db.refresh(creation)
+
+        return creation
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # 不支持的优化类型等业务错误，退还积分
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description=f"AI写作优化失败退款 - {creation.tool_type}",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"Content optimization failed: {e}", exc_info=True)
+        # 优化失败，退还积分
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description=f"AI写作优化失败退款 - {creation.tool_type}",
+            )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"优化内容失败: {str(e)}",
         )
 
 

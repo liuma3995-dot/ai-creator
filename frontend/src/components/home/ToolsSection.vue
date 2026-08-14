@@ -51,22 +51,8 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Briefcase,
   Edit,
-  Film,
-  Files,
-  Management,
-  Notebook,
   Picture,
-  Postcard,
-  Promotion,
-  Reading,
-  RefreshRight,
-  School,
-  Switch,
-  Tickets,
-  User,
-  VideoCamera,
 } from '@element-plus/icons-vue'
 
 const router = useRouter()

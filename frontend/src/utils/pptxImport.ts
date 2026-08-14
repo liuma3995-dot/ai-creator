@@ -6,7 +6,7 @@
 const RATIO = 96 / 72
 
 function convertTextContent(html: string): string {
-  return html.replace(/font-size:\s*([\d.]+)pt/g, (match, p1) => {
+  return html.replace(/font-size:\s*([\d.]+)pt/g, (_match, p1) => {
     return `font-size: ${Math.floor(parseFloat(p1) * RATIO)}px`
   }).replace(/&nbsp;/g, ' ')
 }

@@ -33,7 +33,8 @@ class CreationRegenerate(BaseModel):
 
 class CreationOptimize(BaseModel):
     """优化创作请求"""
-    optimization_type: str = Field(..., description="优化类型: seo, readability, grammar等")
+    optimization_type: Optional[str] = Field(None, description="优化类型: seo, readability, style等（单类型，兼容旧参数）")
+    optimize_types: Optional[List[str]] = Field(None, description="优化类型列表（多类型顺序优化）")
     parameters: Optional[Dict[str, Any]] = Field(None, description="优化参数")
 
 

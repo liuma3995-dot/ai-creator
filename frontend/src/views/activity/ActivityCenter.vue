@@ -107,7 +107,7 @@ const loadActivities = async () => {
 const handleParticipate = async (a: Activity) => {
   participatingId.value = a.id
   try {
-    const res: any = await participateActivity(a.id)
+    await participateActivity(a.id)
     participated.value.add(a.id)
     const rw = rewardText(a)
     ElMessage.success(rw ? `参与成功，获得 ${rw}` : '参与成功')

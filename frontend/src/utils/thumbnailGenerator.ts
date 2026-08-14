@@ -607,7 +607,7 @@ function drawChartPlaceholder(ctx: CanvasRenderingContext2D, x: number, y: numbe
 /**
  * 绘制公式占位符
  */
-function drawFormula(ctx: CanvasRenderingContext2D, element: any, x: number, y: number, w: number, h: number, scale: number) {
+function drawFormula(ctx: CanvasRenderingContext2D, element: any, x: number, y: number, w: number, h: number, _scale: number) {
   ctx.fillStyle = '#f8f9fa'
   ctx.fillRect(x, y, w, h)
 

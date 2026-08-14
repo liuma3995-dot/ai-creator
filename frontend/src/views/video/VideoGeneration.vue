@@ -213,7 +213,10 @@ import { UploadFilled, VideoPlay, Download, VideoCamera, ArrowDown, Loading } fr
 import type { UploadFile } from 'element-plus'
 import request from '@/api/request'
 import { getAIModels } from '@/api/models'
+import { useUserStore } from '@/store/user'
 import type { AIModel } from '@/types'
+
+const userStore = useUserStore()
 
 interface TextForm { prompt: string; duration: number; aspect_ratio: string; style: string }
 interface ImageForm { image: File | null; motion_prompt: string; duration: number; image_data_url?: string }
@@ -317,6 +320,7 @@ const generateVideo = async () => {
     const task = response.data
     currentTask.value = { id: task.task_id, status: 'processing', progress: 0 }
     ElMessage.success('任务已提交')
+    userStore.refreshCredits()
     
     pollTimer = setInterval(async () => {
       if (!currentTask.value) return
@@ -335,6 +339,7 @@ const generateVideo = async () => {
           generating.value = false
           if (data.status === 'completed') {
             ElMessage.success('视频生成完成')
+            userStore.refreshCredits()
             loadGallery()
           } else {
             ElMessage.error(data.error || '视频生成失败')

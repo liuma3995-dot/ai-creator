@@ -7,7 +7,6 @@ import type {
   TemplateCreate,
   TemplateUpdate,
   TemplateListResponse,
-  TemplateCloneRequest,
   PlatformsResponse,
   PlatformType
 } from '@/types/template'

@@ -304,7 +304,7 @@ const loadBalance = async () => {
 const loadPrices = async () => {
   try {
     const response = await getMembershipPrices()
-    prices.value = Array.isArray(response.data) ? response.data : (response.data as any)?.items || []
+    prices.value = response.data || []
     if (!selectedPrice.value && prices.value.length > 0) {
       selectedPrice.value = prices.value[0]
     }
@@ -316,7 +316,7 @@ const loadPrices = async () => {
 const loadOrders = async () => {
   try {
     const response = await getMembershipOrders({ limit: 10 })
-    orders.value = (response.data as any)?.items || response.data || []
+    orders.value = response.data.items || []
   } catch (error) {
     console.error('加载购买记录失败:', error)
   }

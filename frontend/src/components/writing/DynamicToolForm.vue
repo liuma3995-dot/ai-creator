@@ -231,7 +231,7 @@ const loadHistoryIfNeeded = async () => {
       page_size: 50,
       status: 'completed'
     })
-    historyList.value = res.data.items || []
+    historyList.value = res.items || []
     historyLoaded.value = true
   } catch (error) {
     console.error('Failed to load history:', error)
@@ -248,7 +248,7 @@ const handleHistorySelect = async (field: FormField, creationId: number | null) 
   
   try {
     const res = await getCreation(creationId)
-    const creation = res.data
+    const creation = res
     const content = creation.output_content || creation.content || ''
     selectedHistoryContent.value = content
     
@@ -305,7 +305,7 @@ const handleUrlFetch = async (field: FormField) => {
   
   try {
     const res = await fetchUrlContent(url)
-    const data = res.data
+    const data = res
     
     if (data.success) {
       fetchedUrlContent.value = data.content

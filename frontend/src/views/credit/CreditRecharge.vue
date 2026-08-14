@@ -257,7 +257,7 @@ const loadBalance = async () => {
 const loadPrices = async () => {
   try {
     const res = await getCreditPrices()
-    prices.value = Array.isArray(res.data) ? res.data : (res.data?.items || [])
+    prices.value = res.data || []
     if (!selectedPrice.value && prices.value.length > 0) {
       selectedPrice.value = prices.value[0]
     }
@@ -269,7 +269,7 @@ const loadPrices = async () => {
 const loadOrders = async () => {
   try {
     const res = await getRechargeOrders({ limit: 10 })
-    orders.value = (res.data as any)?.items || res.data || []
+    orders.value = res.data.items || []
   } catch (error) {
     console.error('加载订单失败:', error)
   }

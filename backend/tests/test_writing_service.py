@@ -12,6 +12,81 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.services.writing_service import WritingService
 from app.services.ai.openai_service import OpenAIService
 from app.services.ai.anthropic_service import AnthropicService
+from types import SimpleNamespace
+
+
+class _FakeChatService:
+    """模拟 LangChain 服务，捕获提示词"""
+
+    def __init__(self):
+        self.captured = {}
+
+    async def chat(self, message, **kwargs):
+        self.captured["message"] = message
+        return SimpleNamespace(content="生成内容")
+
+
+class TestGenerateContentSupplement:
+    """测试生成/重新生成时补充说明进入提示词"""
+
+    async def test_generate_content_appends_supplement_with_priority(self, db_session):
+        ai_model = Mock()
+        ai_model.provider = "openai"
+        ai_model.api_key = "test-key"
+        ai_model.model_name = "gpt-4"
+        ai_model.base_url = None
+        ai_model.id = 1
+
+        fake = _FakeChatService()
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            result = await WritingService.generate_content(
+                db=db_session,
+                tool_type="xiaohongshu_note",
+                user_input={
+                    "topic": "AI主题",
+                    "keywords": "AI,科技",
+                    "note_type": "热点",
+                    "additional_description": "字数要求：50字",
+                },
+                ai_model=ai_model,
+            )
+
+        prompt = fake.captured["message"]
+        assert result == "生成内容"
+        assert "【用户特殊要求】" in prompt
+        assert prompt.startswith("请根据以下信息创作内容")
+        assert "字数要求：50字" in prompt
+        assert "最高优先级" in prompt
+        # 补充说明指定字数后应改用极简模式，不再携带模板结构要求
+        assert "小红书爆款笔记创作专家" not in prompt
+
+    async def test_generate_content_general_supplement_keeps_template(self, db_session):
+        """补充说明未指定字数时，保留工具模板并注入最高优先级要求"""
+        ai_model = Mock()
+        ai_model.provider = "openai"
+        ai_model.api_key = "test-key"
+        ai_model.model_name = "gpt-4"
+        ai_model.base_url = None
+        ai_model.id = 1
+
+        fake = _FakeChatService()
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            await WritingService.generate_content(
+                db=db_session,
+                tool_type="xiaohongshu_note",
+                user_input={
+                    "topic": "AI主题",
+                    "keywords": "AI,科技",
+                    "note_type": "热点",
+                    "additional_description": "语言要口语化、有感染力",
+                },
+                ai_model=ai_model,
+            )
+
+        prompt = fake.captured["message"]
+        assert "语言要口语化、有感染力" in prompt
+        assert "小红书爆款笔记创作专家" in prompt
+        assert "最高优先级" in prompt
 
 
 class TestGetAIService:

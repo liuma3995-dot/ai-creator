@@ -3,7 +3,7 @@ import type { AIModel, AIModelForm, AvailableModel, ChatRequest, ChatResponse, M
 
 // 获取AI模型列表
 export function getAIModels(capability?: ModelCapability) {
-  return request.get<AIModel[]>('/v1/models', {
+  return request.get<{ data: AIModel[] }>('/v1/models', {
     params: capability ? { capability } : {}
   })
 }

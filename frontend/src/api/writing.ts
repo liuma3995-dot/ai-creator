@@ -15,14 +15,11 @@ export function generateContent(data: GenerateContentParams) {
 }
 
 export function regenerateContent(creationId: number, params?: Record<string, any>) {
-  return request.post<Creation>(`/v1/writing/${creationId}/regenerate`, { params })
+  return request.post<Creation>(`/v1/writing/creations/${creationId}/regenerate`, { parameters: params })
 }
 
-export function optimizeContent(creationId: number, optimizationType: string, requirements?: string) {
-  return request.post<Creation>(`/v1/writing/${creationId}/optimize`, {
-    optimization_type: optimizationType,
-    requirements
-  })
+export function optimizeContent(creationId: number, options: { optimize_types: string[] }) {
+  return request.post<Creation>(`/v1/writing/${creationId}/optimize`, options)
 }
 
 export function getCreations(params: PaginationParams & { content_type?: string; tool_type?: string }) {

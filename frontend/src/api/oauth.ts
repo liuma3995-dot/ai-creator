@@ -63,7 +63,7 @@ export interface ChatCompletionRequest {
  * 获取支持的平台列表
  */
 export function getPlatforms() {
-  return request.get<OAuthPlatform[]>('/v1/oauth/platforms')
+  return request.get<{ data: OAuthPlatform[] }>('/v1/oauth/platforms')
 }
 
 /**
@@ -108,7 +108,7 @@ export function getAccounts(params?: {
   platform?: string
   is_active?: boolean
 }) {
-  return request.get<OAuthAccount[]>('/v1/oauth/accounts', { params })
+  return request.get<{ data: OAuthAccount[] }>('/v1/oauth/accounts', { params })
 }
 
 /**
@@ -142,14 +142,14 @@ export function deleteAccount(accountId: number) {
  * 检查账号有效性
  */
 export function checkAccountValidity(accountId: number) {
-  return request.post<{ is_valid: boolean; message: string }>(`/v1/oauth/accounts/${accountId}/check`)
+  return request.post<{ data: { is_valid: boolean; message: string } }>(`/v1/oauth/accounts/${accountId}/check`)
 }
 
 /**
  * 获取账号使用日志
  */
 export function getUsageLogs(accountId: number, limit = 100) {
-  return request.get<OAuthUsageLog[]>(`/v1/oauth/accounts/${accountId}/usage`, { params: { limit } })
+  return request.get<{ data: OAuthUsageLog[] }>(`/v1/oauth/accounts/${accountId}/usage`, { params: { limit } })
 }
 
 /**

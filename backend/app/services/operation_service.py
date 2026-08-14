@@ -347,6 +347,7 @@ class CouponService:
 
         user_coupon.status = CouponStatus.USED
         user_coupon.used_at = datetime.now()
+        coupon.used_quantity = (coupon.used_quantity or 0) + 1
         db.commit()
 
         return {
@@ -431,6 +432,7 @@ class CouponService:
         user_coupon.status = CouponStatus.USED
         user_coupon.used_at = datetime.now()
         user_coupon.order_id = order_id
+        coupon.used_quantity = (coupon.used_quantity or 0) + 1
 
 
 class ReferralService:
@@ -844,6 +846,7 @@ class OperationService:
         final_amount = max(Decimal('0'), amount - discount_amount)
         user_coupon.status = CouponStatus.USED
         user_coupon.used_at = now
+        coupon.used_quantity = (coupon.used_quantity or 0) + 1
         self.db.commit()
         self.db.refresh(user_coupon)
 
@@ -1014,17 +1017,26 @@ class OperationService:
         }
 
     # Statistics methods
-    async def get_statistics(self, start_date: Optional[datetime] = None, 
-                           end_date: Optional[datetime] = None) -> Dict[str, Any]:
-        """获取运营统计数据"""
+    async def get_statistics(self, start_date: Optional[datetime] = None,
+                           end_date: Optional[datetime] = None,
+                           stat_type: str = "daily") -> Dict[str, Any]:
+        """获取运营统计数据（stat_type: daily-日 / weekly-周 / monthly-月）"""
         from app.models.creation import Creation
         from app.models.credit import RechargeOrder, MembershipOrder
+        from datetime import time as dt_time
         
         # 设置默认时间范围（最近30天）
         if not end_date:
             end_date = datetime.now()
         if not start_date:
             start_date = end_date - timedelta(days=30)
+
+        # 截止日期含当天：YYYY-MM-DD 会被解析为当天 00:00:00，
+        # 把查询上界顺延到次日零点，保证截止日当天数据被统计；
+        # 日期序列仍按用户选择的截止日生成（见下方 seq_end_date）。
+        seq_end_date = end_date
+        if end_date and end_date.time() == dt_time.min:
+            end_date = end_date + timedelta(days=1)
         
         # 用户统计
         new_users = self.db.query(User).filter(
@@ -1195,66 +1207,100 @@ class OperationService:
         # 按日期补齐连续序列（含两端）
         dates = []
         current = start_date.date() if hasattr(start_date, 'date') else start_date
-        end = end_date.date() if hasattr(end_date, 'date') else end_date
+        end = seq_end_date.date() if hasattr(seq_end_date, 'date') else seq_end_date
         while current <= end:
             dates.append(current)
             current += timedelta(days=1)
         date_strs = [d.strftime('%Y-%m-%d') for d in dates]
 
+        # 统计粒度：daily 按天 / weekly 按自然周（周一为起点）/ monthly 按月
+        def _bucket_of(day_str: str) -> str:
+            day = datetime.strptime(day_str, '%Y-%m-%d').date()
+            if stat_type == "weekly":
+                return (day - timedelta(days=day.weekday())).strftime('%Y-%m-%d')
+            if stat_type == "monthly":
+                return day.strftime('%Y-%m')
+            return day_str
+
+        buckets = []
+        for ds in date_strs:
+            b = _bucket_of(ds)
+            if not buckets or buckets[-1] != b:
+                buckets.append(b)
+
+        def _rollup(day_map):
+            out = {b: 0 for b in buckets}
+            for ds in date_strs:
+                out[_bucket_of(ds)] += day_map.get(ds, 0)
+            return [out[b] for b in buckets]
+
+        rev_by_day = {
+            d: recharge_by_day.get(d, 0) + membership_by_day.get(d, 0)
+            for d in date_strs
+        }
         revenue_trend = {
-            "dates": date_strs,
-            "amounts": [
-                round(recharge_by_day.get(d, 0) + membership_by_day.get(d, 0), 2)
-                for d in date_strs
-            ],
+            "dates": buckets,
+            "amounts": [round(v, 2) for v in _rollup(rev_by_day)],
         }
         users_trend = {
-            "dates": date_strs,
-            "counts": [users_by_day.get(d, 0) for d in date_strs],
+            "dates": buckets,
+            "counts": _rollup(users_by_day),
         }
         members_trend = {
-            "dates": date_strs,
-            "counts": [memberships_count_by_day.get(d, 0) for d in date_strs],
+            "dates": buckets,
+            "counts": _rollup(memberships_count_by_day),
         }
         creations_trend = {
-            "dates": date_strs,
-            "counts": [creations_by_day.get(d, 0) for d in date_strs],
+            "dates": buckets,
+            "counts": _rollup(creations_by_day),
         }
         revenue_details = [
             {
-                "date": d,
-                "recharge_amount": recharge_by_day.get(d, 0),
-                "membership_amount": membership_by_day.get(d, 0),
-                "total_amount": round(
-                    recharge_by_day.get(d, 0) + membership_by_day.get(d, 0), 2
-                ),
-                "order_count": (
-                    recharge_count_by_day.get(d, 0)
-                    + memberships_count_by_day.get(d, 0)
+                "date": b,
+                "recharge_amount": round(sum(
+                    recharge_by_day.get(d, 0) for d in date_strs if _bucket_of(d) == b
+                ), 2),
+                "membership_amount": round(sum(
+                    membership_by_day.get(d, 0) for d in date_strs if _bucket_of(d) == b
+                ), 2),
+                "total_amount": round(sum(
+                    rev_by_day.get(d, 0) for d in date_strs if _bucket_of(d) == b
+                ), 2),
+                "order_count": sum(
+                    recharge_count_by_day.get(d, 0) + memberships_count_by_day.get(d, 0)
+                    for d in date_strs if _bucket_of(d) == b
                 ),
             }
-            for d in date_strs
+            for b in buckets
         ]
         cum_members = 0
         user_details = []
-        for d in date_strs:
-            cum_members += memberships_count_by_day.get(d, 0)
+        new_users_rollup = _rollup(users_by_day)
+        active_users_rollup = _rollup(active_users_by_day)
+        new_members_rollup = _rollup(memberships_count_by_day)
+        for i, b in enumerate(buckets):
+            cum_members += new_members_rollup[i]
             user_details.append({
-                "date": d,
-                "new_users": users_by_day.get(d, 0),
-                "active_users": active_users_by_day.get(d, 0),
-                "new_members": memberships_count_by_day.get(d, 0),
+                "date": b,
+                "new_users": new_users_rollup[i],
+                "active_users": active_users_rollup[i],
+                "new_members": new_members_rollup[i],
                 "total_members": cum_members,
             })
+        bucket_types = {b: {} for b in buckets}
+        for ds in date_strs:
+            for t, c in creation_by_day_type.get(ds, {}).items():
+                b = _bucket_of(ds)
+                bucket_types[b][t] = bucket_types[b].get(t, 0) + c
         creation_details = []
-        for d in date_strs:
-            day_types = creation_by_day_type.get(d, {})
+        for b in buckets:
+            day_types = bucket_types[b]
             writing_count = sum(
                 c for t, c in day_types.items()
                 if t not in ("image", "video", "ppt")
             )
             creation_details.append({
-                "date": d,
+                "date": b,
                 "writing_count": writing_count,
                 "image_count": day_types.get("image", 0),
                 "video_count": day_types.get("video", 0),
@@ -1291,7 +1337,12 @@ class OperationService:
 
         # 留存率与转化率（口径：窗口内活跃/新增、已结算/总推荐）
         total_revenue = float(recharge_stats.amount or 0) + float(membership_stats.amount or 0)
-        total_members = self.db.query(User).filter(User.is_member == True).count()
+        # 会员数：区间内新增会员（按已支付会员订单去重用户），随起止日期变化
+        total_members = self.db.query(func.count(func.distinct(MembershipOrder.user_id))).filter(
+            MembershipOrder.created_at >= start_date,
+            MembershipOrder.created_at <= end_date,
+            MembershipOrder.payment_status == PaymentStatus.PAID,
+        ).scalar() or 0
         settled_referrals = self.db.query(ReferralRecord).filter(
             ReferralRecord.created_at >= start_date,
             ReferralRecord.created_at <= end_date,
@@ -1299,6 +1350,46 @@ class OperationService:
         ).count()
         user_retention_rate = round(active_users / new_users * 100, 1) if new_users else 0
         referral_conversion_rate = round(settled_referrals / referral_count * 100, 1) if referral_count else 0
+
+        # 环比趋势（对比上一等长区间）
+        span_days = (seq_end_date - start_date).days or 1
+        prev_end = start_date - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=span_days)
+        prev_end_exclusive = prev_end + timedelta(days=1)
+
+        def _pct(cur, prev):
+            if prev and prev > 0:
+                return round((cur - prev) / prev * 100, 1)
+            return 100.0 if cur and cur > 0 else 0.0
+
+        def _period_revenue(s, e):
+            recharge = self.db.query(func.coalesce(func.sum(RechargeOrder.amount), 0)).filter(
+                RechargeOrder.created_at >= s,
+                RechargeOrder.created_at <= e,
+                RechargeOrder.payment_status == PaymentStatus.PAID,
+            ).scalar() or 0
+            membership = self.db.query(func.coalesce(func.sum(MembershipOrder.amount), 0)).filter(
+                MembershipOrder.created_at >= s,
+                MembershipOrder.created_at <= e,
+                MembershipOrder.payment_status == PaymentStatus.PAID,
+            ).scalar() or 0
+            return float(recharge) + float(membership)
+
+        prev_members = self.db.query(func.count(func.distinct(MembershipOrder.user_id))).filter(
+            MembershipOrder.created_at >= prev_start,
+            MembershipOrder.created_at <= prev_end_exclusive,
+            MembershipOrder.payment_status == PaymentStatus.PAID,
+        ).scalar() or 0
+        revenue_trend_pct = _pct(total_revenue, _period_revenue(prev_start, prev_end_exclusive))
+        users_trend_pct = _pct(new_users, self.db.query(User).filter(
+            User.created_at >= prev_start,
+            User.created_at <= prev_end_exclusive,
+        ).count())
+        members_trend_pct = _pct(total_members, prev_members)
+        creations_trend_pct = _pct(generation_count, self.db.query(Creation).filter(
+            Creation.created_at >= prev_start,
+            Creation.created_at <= prev_end_exclusive,
+        ).count())
         
         return {
             "new_users": new_users,
@@ -1321,12 +1412,16 @@ class OperationService:
             "revenue_trend": revenue_trend,
             "users_trend": users_trend,
             "user_trend": {
-                "dates": date_strs,
-                "new_users": [users_by_day.get(d, 0) for d in date_strs],
-                "active_users": [active_users_by_day.get(d, 0) for d in date_strs],
+                "dates": buckets,
+                "new_users": new_users_rollup,
+                "active_users": active_users_rollup,
             },
             "members_trend": members_trend,
             "creations_trend": creations_trend,
+            "revenue_trend_pct": revenue_trend_pct,
+            "users_trend_pct": users_trend_pct,
+            "members_trend_pct": members_trend_pct,
+            "creations_trend_pct": creations_trend_pct,
             "revenue_details": revenue_details,
             "user_details": user_details,
             "creation_details": creation_details,
@@ -1407,7 +1502,8 @@ class OperationService:
         """获取运营统计数据（管理员用）"""
         start_date = query.start_date if hasattr(query, 'start_date') else None
         end_date = query.end_date if hasattr(query, 'end_date') else None
-        return await self.get_statistics(start_date, end_date)
+        stat_type = getattr(query, 'stat_type', 'daily') or 'daily'
+        return await self.get_statistics(start_date, end_date, stat_type)
     
     async def get_dashboard_statistics(self) -> Dict[str, Any]:
         """获取仪表盘统计数据（管理员用）"""

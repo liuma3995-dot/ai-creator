@@ -70,7 +70,6 @@ const getParagraphMetrics = (html: string, ratio: number) => {
     }
 
     const marginTop = getProp('margin-top')
-    const marginBottom = getProp('margin-bottom')
     const lineHeight = getProp('line-height')
 
     const tagStartIndex = match.index
@@ -243,10 +242,10 @@ const getElementBounds = (el: any) => {
       }
     })
 
-    const minX = Math.min(...childBounds.map(item => item.minX))
-    const minY = Math.min(...childBounds.map(item => item.minY))
-    const maxX = Math.max(...childBounds.map(item => item.maxX))
-    const maxY = Math.max(...childBounds.map(item => item.maxY))
+    const minX = Math.min(...childBounds.map((item: { minX: number }) => item.minX))
+    const minY = Math.min(...childBounds.map((item: { minY: number }) => item.minY))
+    const maxX = Math.max(...childBounds.map((item: { maxX: number }) => item.maxX))
+    const maxY = Math.max(...childBounds.map((item: { maxY: number }) => item.maxY))
 
     return {
       minX,
@@ -261,56 +260,6 @@ const getElementBounds = (el: any) => {
     minY: 0,
     width: el?.width || 0,
     height: el?.height || 0,
-  }
-}
-
-const calculateRotatedPosition = (
-  ax: number,
-  ay: number,
-  aw: number,
-  ah: number,
-  bx: number,
-  by: number,
-  bw: number,
-  bh: number,
-  ak: number,
-  bk: number
-) => {
-  const aRadians = ak * (Math.PI / 180)
-  const aCos = Math.cos(aRadians)
-  const aSin = Math.sin(aRadians)
-
-  const aCenterX = ax + aw / 2
-  const aCenterY = ay + ah / 2
-
-  const corners = [
-    { ox: bx, oy: by },
-    { ox: bx + bw, oy: by },
-    { ox: bx + bw, oy: by + bh },
-    { ox: bx, oy: by + bh },
-  ]
-
-  let minX = Infinity
-  let minY = Infinity
-
-  for (const corner of corners) {
-    const relativeX = corner.ox - aw / 2
-    const relativeY = corner.oy - ah / 2
-
-    const rotatedX = relativeX * aCos + relativeY * aSin
-    const rotatedY = -relativeX * aSin + relativeY * aCos
-
-    const graphicX = aCenterX + rotatedX
-    const graphicY = aCenterY + rotatedY
-
-    minX = Math.min(minX, graphicX)
-    minY = Math.min(minY, graphicY)
-  }
-
-  return {
-    x: minX,
-    y: minY,
-    globalRotation: (bk + ak) % 360,
   }
 }
 
@@ -554,7 +503,7 @@ const tagImages = (slide: ConvertedSlide, contentGroups: TextElementMeta[][]) =>
   }
 }
 
-const annotateContentTexts = (slide: ConvertedSlide, metas: TextElementMeta[]) => {
+const annotateContentTexts = (_slide: ConvertedSlide, metas: TextElementMeta[]) => {
   if (!metas.length) return [] as TextElementMeta[][]
 
   const title = metas
@@ -617,7 +566,7 @@ const annotateContentTexts = (slide: ConvertedSlide, metas: TextElementMeta[]) =
   return groups
 }
 
-const annotateContentsTexts = (slide: ConvertedSlide, metas: TextElementMeta[]) => {
+const annotateContentsTexts = (_slide: ConvertedSlide, metas: TextElementMeta[]) => {
   if (!metas.length) return [] as TextElementMeta[][]
 
   const title = metas
@@ -648,7 +597,7 @@ const annotateContentsTexts = (slide: ConvertedSlide, metas: TextElementMeta[]) 
   return groups
 }
 
-const annotateCoverLikeTexts = (slide: ConvertedSlide, metas: TextElementMeta[], slideType: string) => {
+const annotateCoverLikeTexts = (_slide: ConvertedSlide, metas: TextElementMeta[], slideType: string) => {
   if (!metas.length) return [] as TextElementMeta[][]
 
   const sorted = [...metas].sort((a, b) => b.fontSize - a.fontSize || a.centerY - b.centerY)

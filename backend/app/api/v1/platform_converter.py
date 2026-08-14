@@ -11,6 +11,9 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.ai_model import AIModel
 from app.utils.deps import get_current_user
+from app.core.exceptions import BusinessException
+from app.models.credit import TransactionType
+from app.services.credit_service import CreditService
 from app.schemas.platform_converter import (
     TargetPlatform,
     PlatformInfo,
@@ -23,6 +26,9 @@ from app.services.platform_converter_service import PlatformConverterService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# 单次转换消耗积分（与写作生成保持一致）
+CONVERT_CREDITS = 10
 
 
 @router.get("/platforms", response_model=List[PlatformInfo])
@@ -75,6 +81,20 @@ async def convert_content(
             status_code=400,
             detail="请先配置 AI 模型才能使用内容转换功能"
         )
+
+    # 检查并扣减积分（会员不扣积分）
+    try:
+        CreditService.check_and_consume_credits(
+            db=db,
+            user_id=current_user.id,
+            amount=CONVERT_CREDITS,
+            description="多平台内容转换",
+        )
+    except BusinessException as e:
+        raise HTTPException(
+            status_code=402,
+            detail=e.detail,
+        )
     
     try:
         result = await PlatformConverterService.convert(
@@ -85,9 +105,27 @@ async def convert_content(
         )
         return result
     except ValueError as e:
+        # 转换失败，退还积分
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=CONVERT_CREDITS,
+                transaction_type=TransactionType.REFUND,
+                description="多平台内容转换失败退款",
+            )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"内容转换失败: {e}")
+        # 转换失败，退还积分
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=CONVERT_CREDITS,
+                transaction_type=TransactionType.REFUND,
+                description="多平台内容转换失败退款",
+            )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -123,6 +161,21 @@ async def batch_convert_content(
             status_code=400,
             detail="请先配置 AI 模型才能使用内容转换功能"
         )
+
+    # 检查并扣减积分（按平台数量计算，会员不扣积分）
+    credits_required = CONVERT_CREDITS * len(request.target_platforms)
+    try:
+        CreditService.check_and_consume_credits(
+            db=db,
+            user_id=current_user.id,
+            amount=credits_required,
+            description="多平台内容批量转换",
+        )
+    except BusinessException as e:
+        raise HTTPException(
+            status_code=402,
+            detail=e.detail,
+        )
     
     try:
         result = await PlatformConverterService.batch_convert(
@@ -133,7 +186,25 @@ async def batch_convert_content(
         )
         return result
     except ValueError as e:
+        # 批量转换失败，退还积分
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="多平台内容批量转换失败退款",
+            )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"批量转换失败: {e}")
+        # 批量转换失败，退还积分
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="多平台内容批量转换失败退款",
+            )
         raise HTTPException(status_code=500, detail=str(e))

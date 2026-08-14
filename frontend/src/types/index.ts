@@ -30,6 +30,7 @@ export interface User {
   role: string  // 'admin' 或 'user'
   credits: number
   is_member: boolean
+  membership_type?: string
   member_expired_at?: string | null
   created_at: string
 }
@@ -43,7 +44,7 @@ export interface RegisterForm {
   username: string
   email: string
   password: string
-  confirm_password: string
+  confirm_password?: string
   referral_code?: string
 }
 
@@ -99,6 +100,8 @@ export interface Creation {
   content?: string
   output_content?: string
   input_data?: Record<string, any>
+  input_params?: Record<string, any>
+  metadata?: Record<string, any>
   output_data?: Record<string, any>
   extra_data?: Record<string, any>
   ai_model_id?: number

@@ -226,35 +226,40 @@ const statistics = ref({
 })
 
 const activeTab = ref('revenue')
-const revenueDetails = ref([])
-const userDetails = ref([])
-const creationDetails = ref([])
+const revenueDetails = ref<Record<string, any>[]>([])
+const userDetails = ref<Record<string, any>[]>([])
+const creationDetails = ref<Record<string, any>[]>([])
 
 const revenueChart = ref<HTMLElement>()
 const usersChart = ref<HTMLElement>()
 const creationTypeChart = ref<HTMLElement>()
 const paymentMethodChart = ref<HTMLElement>()
 
+const fmtLocalDate = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 const loadStatistics = async () => {
   try {
     const [startDate, endDate] = dateRange.value
     const params = {
       stat_type: statType.value || 'daily',
-      start_date: startDate.toISOString().split('T')[0],
-      end_date: endDate.toISOString().split('T')[0]
+      start_date: fmtLocalDate(startDate),
+      end_date: fmtLocalDate(endDate)
     }
 
     const data = await getOperationStatistics(params)
 
     statistics.value = {
-      totalRevenue: data.data.total_revenue || 0,
-      revenueTrend: data.data.revenue_trend || 0,
-      newUsers: data.data.new_users || 0,
-      usersTrend: data.data.users_trend || 0,
-      totalMembers: data.data.total_members || 0,
-      membersTrend: data.data.members_trend || 0,
-      totalCreations: data.data.total_creations || 0,
-      creationsTrend: data.data.creations_trend || 0
+      totalRevenue: Number(data.data.total_revenue || 0),
+      revenueTrend: Number(data.data.revenue_trend_pct || 0),
+      newUsers: Number(data.data.new_users || 0),
+      usersTrend: Number(data.data.users_trend_pct || 0),
+      totalMembers: Number(data.data.total_members || 0),
+      membersTrend: Number(data.data.members_trend_pct || 0),
+      totalCreations: Number(data.data.total_creations || 0),
+      creationsTrend: Number(data.data.creations_trend_pct || 0)
     }
 
     revenueDetails.value = data.data.revenue_details || []

@@ -204,7 +204,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import ContentPreview from './ContentPreview.vue'
 import { sampleMarkdown } from '@/services/markdownRenderer'
@@ -360,6 +360,7 @@ const previewTemplate = computed<ArticleTemplate>(() => ({
   id: props.template?.id || 0,
   name: templateData.name || '新模板',
   description: templateData.description,
+  platform: props.template?.platform || 'wechat',
   styles: cleanStyles(styles),
   is_system: false,
   is_public: templateData.is_public,
@@ -444,6 +445,7 @@ const handleSave = async () => {
       const createData: TemplateCreate = {
         name: templateData.name,
         description: templateData.description || undefined,
+        platform: props.template?.platform || 'wechat',
         styles: cleanedStyles,
         is_public: templateData.is_public
       }

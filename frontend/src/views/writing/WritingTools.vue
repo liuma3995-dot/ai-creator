@@ -307,7 +307,7 @@ const filteredTools = computed(() => {
 })
 
 const goToEditor = (toolType: string) => {
-  let recent = localStorage.getItem('recentTools') || '[]'
+  const recent = localStorage.getItem('recentTools') || '[]'
   let recentIds = JSON.parse(recent) as string[]
   recentIds = recentIds.filter((id) => id !== toolType)
   recentIds.unshift(toolType)

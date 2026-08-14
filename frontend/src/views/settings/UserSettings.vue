@@ -70,7 +70,7 @@
               <el-table-column label="能力" min-width="180">
                 <template #default="{ row }">
                   <el-tag v-for="cap in (row.capabilities || [])" :key="cap" size="small" style="margin-right: 4px">
-                    {{ capabilityLabels[cap] || cap }}
+                    {{ capabilityLabels[cap as ModelCapability] || cap }}
                   </el-tag>
                   <span v-if="!row.capabilities?.length" style="color: #909399">未设置</span>
                 </template>
@@ -217,7 +217,7 @@ import { Setting, Plus } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import { updateUserInfo, changePassword } from '@/api/auth'
 import { getAIModels, addAIModel, updateAIModel, deleteAIModel } from '@/api/models'
-import { providerOptions, getProviderConfig, capabilityLabels } from '@/config/providerOptions'
+import { getProviderConfig, capabilityLabels } from '@/config/providerOptions'
 import type { AIModel, ModelCapability } from '@/types'
 
 const userStore = useUserStore()
@@ -304,7 +304,7 @@ const loadUserInfo = () => {
 const updateProfile = async () => {
   try {
     await updateUserInfo({ email: profileForm.email, phone: profileForm.phone })
-    await userStore.fetchUserInfo()
+    await userStore.getUserInfo()
     ElMessage.success('个人信息更新成功')
   } catch (error: any) {
     ElMessage.error(error.response?.data?.detail || '更新失败')
