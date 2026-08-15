@@ -38,7 +38,7 @@ class DouyinPublisher(BasePlatformPublisher):
                 
                 # 访问创作者中心
                 page = await context.new_page()
-                await page.goto("https://creator.douyin.com/", wait_until="networkidle")
+                await page.goto("https://creator.douyin.com/", timeout=60000, wait_until="domcontentloaded")
                 
                 # 检查是否需要登录（如果跳转到登录页面说明Cookie无效）
                 current_url = page.url
@@ -54,7 +54,14 @@ class DouyinPublisher(BasePlatformPublisher):
     async def create_draft(
         self,
         account: PlatformAccount,
-        content: Dict[str, Any]
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        cover_image: Optional[str] = None,
+        images: Optional[List[str]] = None,
+        video_url: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        location: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         创建抖音视频草稿
@@ -72,14 +79,22 @@ class DouyinPublisher(BasePlatformPublisher):
         Returns:
             Dict: 包含draft_url的字典
         """
-        # 检查Cookie
-        self.check_cookies_or_raise(account)
+        # 检查Cookie（与统一调用签名适配：组装 content 字典）
+        await self.check_cookies_or_raise(account)
         cookies = self.get_cookies(account)
-        
+        content_dict = {
+            "title": title,
+            "description": content,
+            "video_url": video_url,
+            "cover_url": cover_image,
+            "tags": tags,
+            "location": location,
+        }
+
         # 验证必需字段
-        if not content.get("video_url"):
+        if not content_dict.get("video_url"):
             raise ValueError("抖音发布需要提供视频URL")
-        if not content.get("cover_url"):
+        if not content_dict.get("cover_url"):
             raise ValueError("抖音发布需要提供封面图URL")
         
         try:
@@ -91,41 +106,41 @@ class DouyinPublisher(BasePlatformPublisher):
                 page = await context.new_page()
                 
                 # 访问发布页面
-                await page.goto("https://creator.douyin.com/creator-micro/content/upload", wait_until="networkidle")
+                await page.goto("https://creator.douyin.com/creator-micro/content/upload", timeout=60000, wait_until="domcontentloaded")
                 await page.wait_for_timeout(2000)
                 
                 # 上传视频文件
-                await self._upload_video(page, content["video_url"])
+                await self._upload_video(page, content_dict["video_url"])
                 
                 # 等待视频处理
                 await page.wait_for_timeout(5000)
                 
                 # 上传封面图
-                await self._upload_cover(page, content["cover_url"])
+                await self._upload_cover(page, content_dict["cover_url"])
                 
                 # 填写标题
                 title_input = await page.wait_for_selector('input[placeholder*="标题"]', timeout=10000)
-                await title_input.fill(content.get("title", ""))
+                await title_input.fill(content_dict.get("title", ""))
                 
                 # 填写描述
-                if content.get("description"):
+                if content_dict.get("description"):
                     desc_input = await page.query_selector('div[contenteditable="true"]')
                     if desc_input:
-                        await desc_input.fill(content["description"])
+                        await desc_input.fill(content_dict["description"])
                 
                 # 添加标签
-                if content.get("tags"):
+                if content_dict.get("tags"):
                     await self._add_tags(page, content["tags"])
                 
                 # 添加位置
-                if content.get("location"):
+                if content_dict.get("location"):
                     location_btn = await page.query_selector('text="添加位置"')
                     if location_btn:
                         await location_btn.click()
                         await page.wait_for_timeout(1000)
                         location_input = await page.query_selector('input[placeholder*="搜索"]')
                         if location_input:
-                            await location_input.fill(content["location"])
+                            await location_input.fill(content_dict["location"])
                             await page.wait_for_timeout(1000)
                             # 选择第一个结果
                             first_result = await page.query_selector('.location-item:first-child')
@@ -149,7 +164,7 @@ class DouyinPublisher(BasePlatformPublisher):
                 
         except Exception as e:
             self.logger.error(f"创建抖音草稿失败: {str(e)}")
-            raise Exception(f"创建抖音草稿失败: {str(e)}")
+            raise
     
     async def _upload_video(self, page: Page, video_url: str):
         """上传视频"""

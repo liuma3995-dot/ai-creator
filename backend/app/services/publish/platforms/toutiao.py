@@ -41,7 +41,7 @@ class ToutiaoPublisher(BasePlatformPublisher):
                 
                 # 访问创作者中心
                 page = await context.new_page()
-                await page.goto("https://mp.toutiao.com/", wait_until="networkidle")
+                await page.goto("https://mp.toutiao.com/", timeout=60000, wait_until="domcontentloaded")
                 
                 # 检查是否需要登录
                 current_url = page.url
@@ -57,7 +57,15 @@ class ToutiaoPublisher(BasePlatformPublisher):
     async def create_draft(
         self,
         account: PlatformAccount,
-        content: Dict[str, Any]
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        cover_image: Optional[str] = None,
+        images: Optional[List[str]] = None,
+        video_url: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        location: Optional[str] = None,
+        content_type: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         创建今日头条图文/视频草稿
@@ -76,20 +84,29 @@ class ToutiaoPublisher(BasePlatformPublisher):
         Returns:
             Dict: 包含draft_url的字典
         """
-        # 检查Cookie
-        self.check_cookies_or_raise(account)
+        # 检查Cookie（与统一调用签名适配：组装 content 字典）
+        await self.check_cookies_or_raise(account)
         cookies = self.get_cookies(account)
-        
+        content_type = content_type or "article"
+        content_dict = {
+            "title": title,
+            "content": content,
+            "video_url": video_url,
+            "cover_url": cover_image,
+            "images": images,
+            "tags": tags,
+            "location": location,
+            "content_type": content_type,
+        }
+
         # 验证必需字段
-        if not content.get("cover_url"):
+        if not content_dict.get("cover_url"):
             raise ValueError("今日头条发布需要提供封面图URL")
-        
-        content_type = content.get("content_type", "article")
-        
+
         if content_type == "video":
-            return await self._create_video_draft(cookies, content)
+            return await self._create_video_draft(cookies, content_dict)
         else:
-            return await self._create_article_draft(cookies, content)
+            return await self._create_article_draft(cookies, content_dict)
     
     async def _create_article_draft(
         self,
@@ -106,7 +123,7 @@ class ToutiaoPublisher(BasePlatformPublisher):
                 page = await context.new_page()
                 
                 # 访问发布页面
-                await page.goto("https://mp.toutiao.com/profile_v4/graphic/publish", wait_until="networkidle")
+                await page.goto("https://mp.toutiao.com/profile_v4/graphic/publish", timeout=60000, wait_until="domcontentloaded")
                 await page.wait_for_timeout(2000)
                 
                 # 填写标题
@@ -149,7 +166,7 @@ class ToutiaoPublisher(BasePlatformPublisher):
                 
         except Exception as e:
             self.logger.error(f"创建今日头条图文草稿失败: {str(e)}")
-            raise Exception(f"创建今日头条图文草稿失败: {str(e)}")
+            raise
     
     async def _create_video_draft(
         self,
@@ -169,7 +186,7 @@ class ToutiaoPublisher(BasePlatformPublisher):
                 page = await context.new_page()
                 
                 # 访问视频发布页面
-                await page.goto("https://mp.toutiao.com/profile_v4/xigua/upload-video", wait_until="networkidle")
+                await page.goto("https://mp.toutiao.com/profile_v4/xigua/upload-video", timeout=60000, wait_until="domcontentloaded")
                 await page.wait_for_timeout(2000)
                 
                 # 上传视频
@@ -212,7 +229,7 @@ class ToutiaoPublisher(BasePlatformPublisher):
                 
         except Exception as e:
             self.logger.error(f"创建今日头条视频草稿失败: {str(e)}")
-            raise Exception(f"创建今日头条视频草稿失败: {str(e)}")
+            raise
     
     async def _upload_images(self, page: Page, image_urls: List[str]) -> None:
         """

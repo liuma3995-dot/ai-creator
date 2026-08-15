@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="stats-section">
     <el-row :gutter="20">
-      <el-col :xs="12" :sm="6">
+      <el-col :xs="12" :sm="12">
         <el-card class="stat-card stat-card-primary">
           <el-statistic title="总创作数" :value="stats.totalCreations">
             <template #prefix>
@@ -10,29 +10,11 @@
           </el-statistic>
         </el-card>
       </el-col>
-      <el-col :xs="12" :sm="6">
+      <el-col :xs="12" :sm="12">
         <el-card class="stat-card stat-card-success">
           <el-statistic title="今日创作" :value="stats.todayCreations">
             <template #prefix>
               <el-icon><Calendar /></el-icon>
-            </template>
-          </el-statistic>
-        </el-card>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <el-card class="stat-card stat-card-warning">
-          <el-statistic title="已发布" :value="stats.published">
-            <template #prefix>
-              <el-icon><Upload /></el-icon>
-            </template>
-          </el-statistic>
-        </el-card>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <el-card class="stat-card stat-card-purple">
-          <el-statistic title="绑定平台" :value="stats.platforms">
-            <template #prefix>
-              <el-icon><Link /></el-icon>
             </template>
           </el-statistic>
         </el-card>
@@ -43,10 +25,9 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Calendar, Document, Link, Upload } from '@element-plus/icons-vue'
+import { Calendar, Document } from '@element-plus/icons-vue'
 import { getCreations } from '@/api/creations'
 import { getDashboardStatistics } from '@/api/operation'
-import { getPlatformAccounts, getPublishHistory } from '@/api/publish'
 import { useUserStore } from '@/store/user'
 
 const userStore = useUserStore()
@@ -54,8 +35,6 @@ const userStore = useUserStore()
 const stats = ref({
   totalCreations: 0,
   todayCreations: 0,
-  published: 0,
-  platforms: 0,
 })
 
 const loadStats = async () => {
@@ -77,11 +56,6 @@ const loadStats = async () => {
       }
     }
 
-    const publishResponse = await getPublishHistory({ skip: 0, limit: 1 })
-    stats.value.published = publishResponse.total || 0
-
-    const platformsResponse = await getPlatformAccounts()
-    stats.value.platforms = platformsResponse.length || 0
   } catch (error) {
     console.error('加载统计数据失败:', error)
   }

@@ -5,7 +5,7 @@
     <div class="welcome-section">
       <div class="welcome-content">
         <h1>欢迎使用 AI 创作者平台</h1>
-        <p>从写作到多媒体生成，用一套统一的工作台提升内容创作效率与发布节奏。</p>
+        <p>从写作到多媒体生成，用一套统一的工作台提升内容创作效率。</p>
         <div class="welcome-benefits">
           <div class="benefit-item">
             <el-icon><Check /></el-icon>
@@ -17,7 +17,7 @@
           </div>
           <div class="benefit-item">
             <el-icon><Check /></el-icon>
-            <span>多平台发布与管理</span>
+            <span>历史记录与草稿管理</span>
           </div>
         </div>
       </div>

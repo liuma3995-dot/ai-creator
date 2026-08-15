@@ -20,12 +20,11 @@
                 <span class="tag">文案</span>
                 <span class="tag">图片</span>
                 <span class="tag">视频</span>
-                <span class="tag">发布</span>
               </div>
               <ul class="brand-features">
                 <li>
                   <span class="feature-icon">1</span>
-                  <span>一站式完成写作、图片、视频与发布流程</span>
+                  <span>一站式完成写作、图片、视频创作流程</span>
                 </li>
                 <li>
                   <span class="feature-icon">2</span>
@@ -33,7 +32,7 @@
                 </li>
                 <li>
                   <span class="feature-icon">3</span>
-                  <span>多平台发布与数据回看，保持内容生产连续性</span>
+                  <span>创作记录与草稿管理，保持内容生产连续性</span>
                 </li>
               </ul>
               <div class="brand-note">

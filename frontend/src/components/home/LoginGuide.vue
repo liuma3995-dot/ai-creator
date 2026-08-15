@@ -22,7 +22,7 @@
           </div>
           <div class="benefit-item">
             <el-icon><Check /></el-icon>
-            <span>多平台发布与管理</span>
+            <span>历史记录与草稿管理</span>
           </div>
         </div>
       </div>

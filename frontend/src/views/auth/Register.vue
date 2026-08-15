@@ -10,10 +10,10 @@
         <section class="intro-panel">
           <div class="intro-badge">新用户欢迎</div>
           <h1>创建你的 AI 创作空间</h1>
-          <p>统一接入写作、图片、视频与发布工具，注册后即可开始使用。</p>
+          <p>统一接入写作、图片、视频创作工具，注册后即可开始使用。</p>
           <ul class="intro-list">
             <li>统一工作台和创作记录</li>
-            <li>会员、积分和多平台能力集中管理</li>
+            <li>会员、积分与创作资产集中管理</li>
             <li>移动端优先优化，注册后立即可用</li>
           </ul>
         </section>

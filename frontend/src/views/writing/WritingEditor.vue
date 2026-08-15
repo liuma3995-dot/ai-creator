@@ -19,7 +19,6 @@
           <div class="header-right">
             <el-button :icon="EditPen" @click="showTitleDialog = true">标题助手</el-button>
             <el-button :icon="Picture" @click="openImagePicker">选择配图</el-button>
-            <el-button v-if="currentCreation" type="primary" :icon="Upload" @click="showPublishDialog = true">发布</el-button>
           </div>
         </div>
       </template>
@@ -143,23 +142,6 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showPublishDialog" title="发布内容" width="600px">
-      <el-form label-position="top">
-        <el-form-item label="选择平台">
-          <el-checkbox-group v-model="selectedPlatforms">
-            <el-checkbox label="wechat">微信公众号</el-checkbox>
-            <el-checkbox label="xiaohongshu">小红书</el-checkbox>
-            <el-checkbox label="douyin">抖音</el-checkbox>
-            <el-checkbox label="toutiao">今日头条</el-checkbox>
-          </el-checkbox-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showPublishDialog = false">取消</el-button>
-        <el-button type="primary" :loading="publishing" @click="handlePublish">确认发布</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 标题助手对话框 -->
     <el-dialog v-model="showTitleDialog" title="标题助手" width="800px" destroy-on-close>
       <el-tabs v-model="titleTabActive">
@@ -192,11 +174,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Download, MagicStick, RefreshRight, Upload, EditPen, Picture, Delete } from '@element-plus/icons-vue'
+import { ArrowLeft, Download, MagicStick, RefreshRight, EditPen, Picture, Delete } from '@element-plus/icons-vue'
 import { MdEditor, type ToolbarNames } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { generateContent, optimizeContent, regenerateContent } from '@/api/writing'
-import { publishContent } from '@/api/publish'
 import { getAIModels } from '@/api/models'
 import { getCreation } from '@/api/creations'
 import { analyzeContent, imitateContent } from '@/api/viralAnalyzer'
@@ -307,11 +288,8 @@ const toolbars: ToolbarNames[] = ['bold','underline','italic','strikeThrough','-
 const currentCreation = ref<Creation>()
 const generating = ref(false)
 const optimizing = ref(false)
-const publishing = ref(false)
 const showOptimizeDialog = ref(false)
-const showPublishDialog = ref(false)
 const optimizeTypes = ref<string[]>([])
-const selectedPlatforms = ref<string[]>([])
 const selectedPlugins = ref<string[]>([])
 
 // 标题助手相关
@@ -514,24 +492,6 @@ const handleOptimize = async () => {
     ElMessage.error(error.message || '优化失败')
   } finally {
     optimizing.value = false
-  }
-}
-
-const handlePublish = async () => {
-  if (!currentCreation.value || selectedPlatforms.value.length === 0) {
-    ElMessage.warning('请选择发布平台')
-    return
-  }
-  publishing.value = true
-  try {
-    await publishContent({ creation_id: currentCreation.value.id, platforms: selectedPlatforms.value } as any)
-    showPublishDialog.value = false
-    selectedPlatforms.value = []
-    ElMessage.success('发布成功')
-  } catch (error: any) {
-    ElMessage.error(error.message || '发布失败')
-  } finally {
-    publishing.value = false
   }
 }
 

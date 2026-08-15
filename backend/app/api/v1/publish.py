@@ -720,10 +720,21 @@ async def publish_content(
     from app.models.template import ArticleTemplate
     from app.models.credit import TransactionType
     
-    # 检查并扣减积分（会员不扣积分）
+    # 每次发布需要10积分
     credits_required = 10  # 每次发布需要10积分
     credits_consumed = False
+
+    # 先校验平台账号，避免账号不存在/未激活时白扣积分
+    account = db.query(PlatformAccount).filter(
+        PlatformAccount.id == publish_data.account_id,
+        PlatformAccount.user_id == current_user.id,
+        PlatformAccount.is_active == PlatformStatus.ACTIVE
+    ).first()
     
+    if not account:
+        raise HTTPException(status_code=404, detail="平台账号不存在或未激活")
+
+    # 检查并扣减积分（会员不扣积分）
     try:
         CreditService.check_and_consume_credits(
             db=db,
@@ -737,16 +748,6 @@ async def publish_content(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=str(e),
         )
-    
-    # 获取平台账号
-    account = db.query(PlatformAccount).filter(
-        PlatformAccount.id == publish_data.account_id,
-        PlatformAccount.user_id == current_user.id,
-        PlatformAccount.is_active == PlatformStatus.ACTIVE
-    ).first()
-    
-    if not account:
-        raise HTTPException(status_code=404, detail="平台账号不存在或未激活")
     
     # 获取 content_type，如果没传则从 creation 获取
     content_type = publish_data.content_type
@@ -814,7 +815,8 @@ async def publish_content(
             images=publish_data.images,
             video_url=publish_data.video_url,
             tags=publish_data.tags,
-            location=publish_data.location
+            location=publish_data.location,
+            content_type=content_type
         )
         
         # 检查创建结果
@@ -899,9 +901,29 @@ async def publish_content(
                 )
             except Exception:
                 pass  # 退还失败不影响主流程
-        
+
+        # 保存失败记录，便于用户在发布历史中看到失败原因
+        try:
+            history = PublishRecord(
+                user_id=current_user.id,
+                platform_account_id=account.id,
+                creation_id=publish_data.creation_id,
+                platform=account.platform,
+                content_type=content_type,
+                title=publish_data.title,
+                content=publish_data.content,
+                rendered_content=publish_data.rendered_content,
+                status=PublishStatus.FAILED,
+                error_message=f"创建草稿失败: {str(e)}"
+            )
+            db.add(history)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        # 创建草稿失败属于业务失败，返回 400 而非服务器内部错误
         raise HTTPException(
-            status_code=500,
+            status_code=400,
             detail=f"创建草稿失败: {str(e)}"
         )
 
