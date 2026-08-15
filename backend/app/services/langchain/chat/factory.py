@@ -151,16 +151,20 @@ class LangChainChatFactory:
             }
         
         elif provider == "minimax":
-            return {
-                "model": model_name,
-                "minimax_api_key": api_key,
-                "minimax_group_id": kwargs.get("group_id", ""),
-            }
-        
-        elif provider == "moonshot":
+            # MiniMax 新版（2026）使用 OpenAI 兼容接口：
+            # base_url=https://api.minimaxi.com/v1，认证 Authorization: Bearer <api_key>
             return {
                 "model": model_name,
                 "api_key": api_key,
+                "base_url": base_url,
+            }
+        
+        elif provider == "moonshot":
+            # Moonshot 官方 OpenAI 兼容接口（api.moonshot.cn/v1）
+            return {
+                "model": model_name,
+                "api_key": api_key,
+                "base_url": base_url,
             }
         
         elif provider == "deepseek":
@@ -172,9 +176,11 @@ class LangChainChatFactory:
             }
         
         elif provider == "baichuan":
+            # 百川官方 OpenAI 兼容接口（api.baichuan-ai.com/v1）
             return {
                 "model": model_name,
-                "baichuan_api_key": api_key,
+                "api_key": api_key,
+                "base_url": base_url,
             }
         
         elif provider == "replicate":

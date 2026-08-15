@@ -33,6 +33,7 @@ class VideoGenerateRequest(BaseModel):
 class TextToVideoRequest(BaseModel):
     """文本转视频请求"""
     text: str
+    model_id: Optional[int] = None
     voice: Optional[str] = None
     background_music: bool = False
     subtitle: bool = True
@@ -42,6 +43,7 @@ class TextToVideoRequest(BaseModel):
 class ImageToVideoRequest(BaseModel):
     """图片转视频请求"""
     images: list[str]
+    model_id: Optional[int] = None
     transition: str = "fade"
     duration_per_image: int = 3
     platform: Optional[str] = None  # 支持Cookie模式
@@ -302,6 +304,17 @@ async def text_to_video(
             required_credits += 30
         if request.subtitle:
             required_credits += 20
+
+        # 校验前端选择的模型（属于当前用户且已启用）
+        if request.model_id:
+            from app.models.ai_model import AIModel
+            ai_model = db.query(AIModel).filter(
+                AIModel.id == request.model_id,
+                AIModel.user_id == current_user.id,
+                AIModel.is_active == True
+            ).first()
+            if not ai_model:
+                raise HTTPException(status_code=400, detail="AI模型不存在或未启用")
         
         if current_user.credits < required_credits:
             raise HTTPException(status_code=402, detail="积分不足")
@@ -314,10 +327,12 @@ async def text_to_video(
             title=f"文本转视频: {request.text[:50]}",
             input_data={
                 "text": request.text,
+                "model_id": request.model_id,
                 "voice": request.voice,
                 "background_music": request.background_music,
                 "subtitle": request.subtitle
             },
+            model_id=request.model_id,
             status="processing",
             task_id=task_id
         )
@@ -369,6 +384,17 @@ async def image_to_video(
     """图片转视频"""
     try:
         required_credits = 100 + len(request.images) * 20
+
+        # 校验前端选择的模型（属于当前用户且已启用）
+        if request.model_id:
+            from app.models.ai_model import AIModel
+            ai_model = db.query(AIModel).filter(
+                AIModel.id == request.model_id,
+                AIModel.user_id == current_user.id,
+                AIModel.is_active == True
+            ).first()
+            if not ai_model:
+                raise HTTPException(status_code=400, detail="AI模型不存在或未启用")
         
         if current_user.credits < required_credits:
             raise HTTPException(status_code=402, detail="积分不足")
@@ -381,9 +407,11 @@ async def image_to_video(
             title=f"图片转视频: {len(request.images)}张图片",
             input_data={
                 "images": request.images,
+                "model_id": request.model_id,
                 "transition": request.transition,
                 "duration_per_image": request.duration_per_image
             },
+            model_id=request.model_id,
             status="processing",
             task_id=task_id
         )

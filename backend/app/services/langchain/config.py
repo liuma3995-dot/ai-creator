@@ -72,6 +72,10 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         langchain_class="langchain_anthropic.ChatAnthropic",
         models={
             "text": [
+                "claude-opus-4-6-20260206",
+                "claude-sonnet-4-6-20260217",
+                "claude-opus-4-5-20251101",
+                "claude-sonnet-4-5-20250929",
                 "claude-opus-4-20250514", 
                 "claude-sonnet-4-20250514",
                 "claude-3-5-sonnet-20241022", 
@@ -94,7 +98,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
         langchain_class="langchain_google_genai.ChatGoogleGenerativeAI",
         models={
-            "text": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"],
+            "text": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
             "image": ["imagen-3.0-generate-001"],
             "video": ["veo-001"],
         },
@@ -148,7 +152,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
         langchain_class="langchain_community.chat_models.ChatZhipuAI",
         models={
-            "text": ["glm-4-plus", "glm-4", "glm-4-air", "glm-4-airx", "glm-4-flash", "glm-3-turbo"],
+            "text": ["glm-4.6", "glm-4.5", "glm-4.5-air", "glm-4-plus", "glm-4-air", "glm-4-flash"],
             "image": ["cogview-3-plus", "cogview-3"],
             "video": ["cogvideox"],
         },
@@ -167,7 +171,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
         langchain_class="langchain_community.chat_models.ChatTongyi",
         models={
-            "text": ["qwen-max", "qwen-max-longcontext", "qwen-plus", "qwen-turbo"],
+            "text": ["qwen3-max", "qwen3-plus", "qwen-turbo-latest", "qwen-max", "qwen-plus", "qwen-turbo"],
             "image": ["wanx-v1", "wanx2.1-t2i-turbo", "wanx2.1-t2i-plus"],
             "video": ["wanx2.1-t2v-turbo", "wanx2.1-t2v-plus"],
         },
@@ -248,17 +252,19 @@ PROVIDERS: Dict[str, ProviderConfig] = {
     "minimax": ProviderConfig(
         name="minimax",
         display_name="MiniMax",
-        base_url="https://api.minimax.chat/v1",
-        auth_type=AuthType.API_KEY_GROUP,
+        # 新版开放平台（2026）：OpenAI 兼容接口，域名 api.minimaxi.com（国内）
+        base_url="https://api.minimaxi.com/v1",
+        auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT, Capability.VIDEO, Capability.AUDIO],
-        langchain_class="langchain_community.chat_models.MiniMaxChat",
+        # MiniMaxChat 适配器已过时（旧域名+旧协议），新版走 OpenAI 兼容接口
+        langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["abab6.5s-chat", "abab6.5-chat", "abab6-chat", "abab5.5s-chat", "abab5.5-chat"],
+            "text": ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-Text-01"],
             "video": ["video-01", "video-01-live2d"],
             "audio": ["speech-01", "speech-02"],
         },
         endpoints={
-            "chat": "/text/chatcompletion_v2",
+            "chat": "/chat/completions",
             "video": "/video_generation",
             "audio": "/t2a_v2",
         }
@@ -289,9 +295,10 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         base_url="https://api.moonshot.cn/v1",
         auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT],
-        langchain_class="langchain_community.chat_models.MoonshotChat",
+        # Moonshot 官方 OpenAI 兼容，旧 MoonshotChat 适配器已过时
+        langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"],
+            "text": ["kimi-k2-0711-preview", "kimi-k2-turbo-preview", "kimi-latest", "moonshot-v1-128k", "moonshot-v1-32k"],
         },
         endpoints={
             "chat": "/chat/completions",
@@ -319,7 +326,8 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         base_url="https://api.baichuan-ai.com/v1",
         auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT],
-        langchain_class="langchain_community.chat_models.ChatBaichuan",
+        # 百川官方 OpenAI 兼容，旧 ChatBaichuan 适配器已过时
+        langchain_class="langchain_openai.ChatOpenAI",
         models={
             "text": ["Baichuan4", "Baichuan3-Turbo", "Baichuan3-Turbo-128k", "Baichuan2-Turbo"],
         },

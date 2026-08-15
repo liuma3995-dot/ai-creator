@@ -96,11 +96,11 @@
 
     <el-dialog v-model="showDetailDialog" :title="currentCreation?.title || '创作详情'" width="min(960px, 96vw)" destroy-on-close>
       <div v-if="currentCreation" class="detail-content">
-        <el-descriptions :column="2" border>
+        <el-descriptions :column="2" border v-loading="loadingDetail">
           <el-descriptions-item label="工具类型">{{ getToolName(currentCreation.tool_type) }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ formatDate(currentCreation.created_at) }}</el-descriptions-item>
           <el-descriptions-item label="更新时间">{{ formatDate(currentCreation.updated_at) }}</el-descriptions-item>
-          <el-descriptions-item label="字数">{{ getWordCount(currentCreation.output_content || currentCreation.content) }}</el-descriptions-item>
+          <el-descriptions-item label="字数/页数">{{ getWordCount(currentCreation) }}</el-descriptions-item>
         </el-descriptions>
         <el-divider />
         <div class="content-display" v-html="renderedContent"></div>
@@ -136,37 +136,85 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Edit, Search, Switch } from '@element-plus/icons-vue'
 import * as creationsApi from '@/api/creations'
+import { getSavedPPT } from '@/api/ppt'
 import { markdownToHtml } from '@/services/markdownRenderer'
 import PlatformConverter from '@/components/converter/PlatformConverter.vue'
 import dayjs from 'dayjs'
 
 const router = useRouter()
 const loading = ref(false)
+const loadingDetail = ref(false)
 const showDetailDialog = ref(false)
 const showConverterDialog = ref(false)
 const creationList = ref<any[]>([])
 const currentCreation = ref<any>(null)
 
 const renderedContent = computed(() => {
-  if (!currentCreation.value) return ''
-  return markdownToHtml(currentCreation.value.output_content || currentCreation.value.content || '')
+  const creation = currentCreation.value
+  if (!creation) return ''
+  const toolType = creation.tool_type || creation.creation_type || ''
+  const text = creation.output_content || creation.content || ''
+
+  if (isPptType(toolType)) {
+    // PPT 大纲：output_content 是 JSON，解析成可读列表
+    if (text && text.trim().startsWith('{')) {
+      try {
+        const outline = JSON.parse(text)
+        const slides: any[] = outline.slides || []
+        const slideHtml = slides.map((slide, index) => {
+          const bullets = Array.isArray(slide.bullets)
+            ? `<ul>${slide.bullets.map((b: string) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`
+            : ''
+          return `<div style="margin:8px 0"><b>${index + 1}. ${escapeHtml(slide.title || '')}</b>${bullets}</div>`
+        }).join('')
+        return `<h3>${escapeHtml(outline.title || '')}</h3>${outline.subtitle ? `<p>${escapeHtml(outline.subtitle)}</p>` : ''}${slideHtml}`
+      } catch {
+        return '<p>PPT 大纲数据格式异常</p>'
+      }
+    }
+    // 已保存的 PPT 编辑器数据
+    const slides = creation.output_data?.slides
+    if (Array.isArray(slides) && slides.length > 0) {
+      return `<p>已保存的 PPT（${slides.length} 页），点击「继续编辑」进入编辑器查看和修改。</p>`
+    }
+    return '<p>该 PPT 记录暂无内容数据</p>'
+  }
+
+  if (toolType === 'image') {
+    const images = creation.output_data?.images
+    if (Array.isArray(images) && images.length > 0) {
+      return images.map((src: string) => `<img src="${src}" style="max-width:100%;border-radius:8px;margin:8px 0"/>`).join('')
+    }
+    return '<p>暂无图片</p>'
+  }
+
+  if (toolType === 'video') {
+    const url = creation.output_data?.video_url
+    return url ? `<video src="${url}" controls style="max-width:100%"></video>` : '<p>暂无视频</p>'
+  }
+
+  return markdownToHtml(text || '')
 })
+
+const escapeHtml = (value: string) => String(value ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
 const filterForm = reactive({ toolType: '', dateRange: null as any, keyword: '' })
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 })
 
 const toolNameMap: Record<string, string> = {
   wechat_article: '公众号', xiaohongshu_note: '小红书', official_document: '公文', marketing_copy: '营销', academic_paper: '论文', press_release: '新闻', video_script: '视频', story_novel: '故事', business_plan: '商业', work_report: '报告', resume: '简历', lesson_plan: '教案', content_rewrite: '改写', translation: '翻译',
-  image: '图片生成', video: '视频生成', ppt: 'PPT生成'
+  image: '图片生成', video: '视频生成', ppt: 'PPT生成', ppt_editor: 'PPT生成', ppt_outline: 'PPT生成'
 }
 const toolIconMap: Record<string, any> = { wechat_article: Document, xiaohongshu_note: Edit, official_document: Document, marketing_copy: Edit, academic_paper: Document, press_release: Document, video_script: Edit, story_novel: Edit, business_plan: Document, work_report: Document, resume: Document, lesson_plan: Document, content_rewrite: Edit, translation: Edit }
 const toolColorMap: Record<string, string> = { wechat_article: '#07c160', xiaohongshu_note: '#ff2442', official_document: '#409eff', marketing_copy: '#f56c6c', academic_paper: '#909399', press_release: '#67c23a', video_script: '#e6a23c', story_novel: '#c71585', business_plan: '#1e90ff', work_report: '#409eff', resume: '#67c23a', lesson_plan: '#e6a23c', content_rewrite: '#909399', translation: '#409eff', image: '#7c3aed', video: '#0ea5e9', ppt: '#f97316' }
 const fetchCreations = async () => {
   loading.value = true
   try {
-    const params: any = { page: pagination.page, page_size: pagination.pageSize }
+    const params: any = { skip: (pagination.page - 1) * pagination.pageSize, limit: pagination.pageSize }
     if (filterForm.toolType) params.tool_type = filterForm.toolType
-    if (filterForm.keyword) params.keyword = filterForm.keyword
+    if (filterForm.keyword) params.search = filterForm.keyword
     if (filterForm.dateRange && filterForm.dateRange.length === 2) {
       params.start_date = dayjs(filterForm.dateRange[0]).format('YYYY-MM-DD')
       params.end_date = dayjs(filterForm.dateRange[1]).format('YYYY-MM-DD')
@@ -186,8 +234,59 @@ const handleReset = () => { filterForm.toolType = ''; filterForm.dateRange = nul
 const handlePageChange = (page: number) => { pagination.page = page; fetchCreations() }
 const handleSizeChange = (size: number) => { pagination.pageSize = size; pagination.page = 1; fetchCreations() }
 const handleRowClick = (row: any) => handleView(row)
-const handleView = (row: any) => { currentCreation.value = row; showDetailDialog.value = true }
-const handleEdit = (row: any) => { const toolType = row.tool_type || row.creation_type || 'wechat_article'; router.push({ name: 'WritingEditor', params: { toolType }, query: { id: row.id } }) }
+const handleView = async (row: any) => {
+  // 查看详情应拉取完整记录，而不是直接使用列表行数据
+  loadingDetail.value = true
+  try {
+    const detail = await creationsApi.getCreation(row.id)
+    currentCreation.value = detail
+    showDetailDialog.value = true
+  } catch (error: any) {
+    ElMessage.error(error.message || '获取创作详情失败')
+  } finally {
+    loadingDetail.value = false
+  }
+}
+
+const writingToolTypes = [
+  'wechat_article', 'xiaohongshu_note', 'official_document', 'marketing_copy', 'academic_paper',
+  'press_release', 'video_script', 'story_novel', 'business_plan', 'work_report', 'resume',
+  'lesson_plan', 'content_rewrite', 'translation',
+]
+
+const isPptType = (toolType: string) => ['ppt', 'ppt_editor', 'ppt_outline'].includes(toolType)
+
+const handleEdit = async (row: any) => {
+  const toolType = row.tool_type || row.creation_type || ''
+
+  // 写作类：进入 AI 写作编辑页并回填该记录
+  if (writingToolTypes.includes(toolType)) {
+    router.push({ name: 'WritingEditor', params: { toolType }, query: { id: row.id } })
+    return
+  }
+
+  // PPT：大纲记录回填 PPT 生成页；编辑器保存的记录进入 PPT 编辑器
+  if (isPptType(toolType)) {
+    if (row.tool_type === 'ppt_editor') {
+      try {
+        const res = await getSavedPPT(row.id)
+        const data = res.data
+        localStorage.setItem('pptist_slides', JSON.stringify(data.slides))
+        if (data.template_id) localStorage.setItem('pptist_template_id', data.template_id)
+        router.push('/ppt/editor')
+      } catch (error: any) {
+        ElMessage.error(error.response?.data?.detail || '加载已保存 PPT 失败')
+      }
+      return
+    }
+    router.push({ path: '/ppt', query: { outline_id: String(row.id) } })
+    return
+  }
+
+  if (toolType === 'image') { router.push('/image'); return }
+  if (toolType === 'video') { router.push('/video'); return }
+  ElMessage.warning('暂不支持编辑该类型的记录')
+}
 const handleEditFromDetail = () => { if (currentCreation.value) { showDetailDialog.value = false; handleEdit(currentCreation.value) } }
 
 const handleDelete = async (row: any) => {
@@ -229,7 +328,28 @@ const getToolTagType = (toolType: string): '' | 'success' | 'info' | 'warning' |
   return map[toolType] || ''
 }
 const getContentPreview = (content: string) => (content || '').replace(/[#*`\[\]()_~>-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120)
-const getWordCount = (content: string) => (content || '').replace(/[#*`\[\]()_~>-]/g, '').replace(/\s+/g, '').length
+const getWordCount = (creation: any) => {
+  const text = creation?.output_content || creation?.content || ''
+  const toolType = creation?.tool_type || creation?.creation_type || ''
+  if (isPptType(toolType)) {
+    const slides = creation?.output_data?.slides
+    if (Array.isArray(slides) && slides.length > 0) return `${slides.length} 页`
+    // PPT 大纲：output_content 是 JSON，解析后按页数展示
+    if (text) {
+      try {
+        const outline = JSON.parse(text)
+        if (Array.isArray(outline.slides) && outline.slides.length > 0) return `${outline.slides.length} 页`
+      } catch {
+        return '-'
+      }
+    }
+    return '-'
+  }
+  if (text) return `${text.replace(/[#*`\[\]()_~>-]/g, '').replace(/\s+/g, '').length} 字`
+  if (toolType === 'image') return '图片'
+  if (toolType === 'video') return '视频'
+  return '0 字'
+}
 const formatDate = (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-'
 
 onMounted(() => { fetchCreations() })

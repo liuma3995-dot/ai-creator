@@ -88,6 +88,7 @@ def save_image_from_url_or_base64(image_data: str, filename: str = None) -> str:
 class ImageGenerateRequest(BaseModel):
     """图片生成请求"""
     prompt: str
+    model_id: Optional[int] = None
     negative_prompt: Optional[str] = None
     width: int = 1024
     height: int = 1024
@@ -143,11 +144,22 @@ async def process_image_generation(db: Session, creation_id: int, request_data: 
         from app.services.langchain.image.factory import ImageGeneratorFactory
 
         # 查询用户启用的、具备图片生成能力的 AIModel
-        ai_model = db.query(AIModel).filter(
+        # 注意：capabilities 是 JSON 数组，不能使用 .contains(["image"])，
+        # 它会被编译成 LIKE 子串匹配，多能力模型无法命中，改为 Python 侧过滤。
+        active_models = db.query(AIModel).filter(
             AIModel.user_id == user_id,
-            AIModel.is_active == True,
-            AIModel.capabilities.contains(["image"])
-        ).first()
+            AIModel.is_active == True
+        ).all()
+        image_models = [m for m in active_models if "image" in (m.capabilities or [])]
+
+        # 优先使用前端选择的模型；未传 model_id 时回退到第一个图片模型
+        requested_model_id = (creation.input_data or {}).get("model_id")
+        if requested_model_id:
+            ai_model = next((m for m in image_models if m.id == requested_model_id), None)
+            if not ai_model:
+                raise ValueError("所选模型不存在、未启用或不支持图片生成")
+        else:
+            ai_model = image_models[0] if image_models else None
 
         if not ai_model:
             logger.error("No active AI model with image capability found")
@@ -329,6 +341,7 @@ async def generate_image(
             title=f"图片生成: {request.prompt[:50]}",
             input_data={
                 "prompt": request.prompt,
+                "model_id": request.model_id,
                 "negative_prompt": request.negative_prompt,
                 "width": request.width,
                 "height": request.height,

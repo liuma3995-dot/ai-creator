@@ -110,8 +110,9 @@ export const providerOptions: ProviderOption[] = [
   {
     value: 'minimax',
     label: 'MiniMax',
-    authType: 'api_key_group',
-    defaultBaseUrl: 'https://api.minimax.chat/v1',
+    // 新版开放平台（2026）：OpenAI 兼容接口，无需 Group ID
+    authType: 'api_key',
+    defaultBaseUrl: 'https://api.minimaxi.com/v1',
     capabilities: ['text', 'video', 'audio'],
     supportsCustomUrl: true,
   },

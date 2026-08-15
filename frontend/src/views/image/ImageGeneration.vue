@@ -21,7 +21,7 @@
                 <el-option
                   v-for="model in imageModels"
                   :key="model.id"
-                  :label="model.name"
+                  :label="modelLabel(model)"
                   :value="model.id"
                 />
               </el-select>
@@ -219,10 +219,17 @@ const form = reactive({
   num_images: 1,
 })
 
+const modelLabel = (model: AIModel) => {
+  if (model.model_name && model.model_name !== model.name) {
+    return `${model.name} (${model.model_name})`
+  }
+  return model.name
+}
+
 const loadImageModels = async () => {
   try {
     const res = await getAIModels('image')
-    imageModels.value = Array.isArray(res) ? res : (res as any).data || []
+    imageModels.value = (Array.isArray(res) ? res : (res as any).data || []).filter((m: AIModel) => m.is_active !== false)
     if (imageModels.value.length && !form.model_id) {
       form.model_id = imageModels.value[0].id
     }

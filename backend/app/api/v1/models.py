@@ -59,9 +59,12 @@ async def get_models(
     )
 
     if capability:
-        query = query.filter(AIModel.capabilities.contains([capability]))
-
-    models = query.all()
+        # 注意：不能使用 SQLAlchemy JSON.contains([capability])，
+        # 它会被编译成 LIKE '%["cap"]%' 子串匹配，多能力模型无法命中。
+        # 改为读取后在 Python 侧按能力过滤，MySQL/SQLite 行为一致。
+        models = [m for m in query.all() if capability in (m.capabilities or [])]
+    else:
+        models = query.all()
     return [_model_to_response(m, is_admin, current_user.id) for m in models]
 
 

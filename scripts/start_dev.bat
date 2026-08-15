@@ -48,10 +48,10 @@ REM ------------------------------------------------------------------
 set "AIC_BACK_HTTP="
 for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:8000/health') do set "AIC_BACK_HTTP=%%c"
 if "%AIC_BACK_HTTP%"=="200" (
-    echo [1/2] Backend already healthy on port 8000.
+    echo [1/3] Backend already healthy on port 8000.
 ) else (
     for /f "tokens=5" %%p in ('netstat -ano ^| findstr /C:":8000 " ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
-    echo [1/2] Starting backend window ai-creator-backend...
+    echo [1/3] Starting backend window ai-creator-backend...
     start "ai-creator-backend" cmd /k "cd /d %ROOT%\backend && %PY% run.py"
 )
 
@@ -85,10 +85,10 @@ REM ------------------------------------------------------------------
 set "AIC_FRONT_HTTP="
 for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:5173/') do set "AIC_FRONT_HTTP=%%c"
 if "%AIC_FRONT_HTTP%"=="200" (
-    echo [2/2] Frontend already responding on port 5173.
+    echo [2/3] Frontend already responding on port 5173.
 ) else (
     for /f "tokens=5" %%p in ('netstat -ano ^| findstr /C:":5173 " ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
-    echo [2/2] Starting frontend Vite window ai-creator-frontend...
+    echo [2/3] Starting frontend Vite window ai-creator-frontend...
     start "ai-creator-frontend" cmd /k "cd /d %ROOT%\frontend && npm.cmd run dev -- --host 0.0.0.0"
 )
 
@@ -112,6 +112,39 @@ goto wait_front
 echo [OK] Frontend Vite ready on http://localhost:5173
 echo.
 
+REM ------------------------------------------------------------------
+REM Step 3: PPTist editor - strict health check (HTTP 200 on root page).
+REM ------------------------------------------------------------------
+set "AIC_PPTIST_HTTP="
+for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:5174/') do set "AIC_PPTIST_HTTP=%%c"
+if "%AIC_PPTIST_HTTP%"=="200" (
+    echo [3/3] PPTist already responding on port 5174.
+) else (
+    for /f "tokens=5" %%p in ('netstat -ano ^| findstr /C:":5174 " ^| findstr "LISTENING"') do taskkill /F /PID %%p >nul 2>&1
+    echo [3/3] Starting PPTist window ai-creator-pptist...
+    start "ai-creator-pptist" cmd /k "cd /d %ROOT%\frontend\pptist && npm.cmd run dev"
+)
+
+REM Wait until the PPTist responds with HTTP 200 (max ~60s).
+echo [wait] Waiting for PPTist on port 5174 ...
+set "AIC_PPTIST_WAIT=0"
+:wait_pptist
+set "AIC_PPTIST_HTTP="
+for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:5174/') do set "AIC_PPTIST_HTTP=%%c"
+if "%AIC_PPTIST_HTTP%"=="200" goto pptist_ready
+set /a AIC_PPTIST_WAIT+=1
+if %AIC_PPTIST_WAIT% geq 30 (
+    echo [ERROR] PPTist did not become ready within 60s.
+    echo         Check the ai-creator-pptist window for errors.
+    pause
+    exit /b 1
+)
+ping -n 2 127.0.0.1 >nul
+goto wait_pptist
+:pptist_ready
+echo [OK] PPTist ready on http://localhost:5174
+echo.
+
 echo ==========================================================
 echo   Service status
 echo ==========================================================
@@ -119,6 +152,7 @@ curl -s -o nul -w "  - Frontend Vite   http://localhost:5173          HTTP %%{ht
 curl -s -o nul -w "  - Backend API     http://localhost:8000          HTTP %%{http_code}\n" http://localhost:8000/docs
 curl -s -o nul -w "  - Swagger         http://localhost:8000/docs     HTTP %%{http_code}\n" http://localhost:8000/docs
 curl -s -o nul -w "  - OpenAPI         http://localhost:8000/openapi.json  HTTP %%{http_code}\n" http://localhost:8000/openapi.json
+curl -s -o nul -w "  - PPTist Editor   http://localhost:5174          HTTP %%{http_code}\n" http://localhost:5174/
 
 echo.
 echo ==========================================================
@@ -147,7 +181,7 @@ if defined LAN_IP (
 
 echo.
 echo   [tips] Both services are confirmed ready above; open the browser now.
-echo   [tips] Two CMD windows opened for backend and frontend live logs.
+echo   [tips] Three CMD windows opened for backend, frontend and PPTist live logs.
 echo   [tips] Close a window to stop that service.
 echo   [tips] If the page still shows "server internal error", the backend
 echo          window may have crashed - check it, then rerun this script.

@@ -16,7 +16,7 @@
               <el-option
                 v-for="model in textModels"
                 :key="model.id"
-                :label="`${model.name}`"
+                :label="modelLabel(model)"
                 :value="model.id"
               />
             </el-select>
@@ -308,7 +308,7 @@
 
 <script setup lang="ts">
 import { reactive, ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Delete, Close, ArrowLeft, ArrowRight, VideoPlay, Check, Upload } from '@element-plus/icons-vue'
 import request from '@/api/request'
@@ -321,6 +321,7 @@ import { useUserStore } from '@/store/user'
 import type { AIModel } from '@/types'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const generatingOutline = ref(false)
 const generatingPPT = ref(false)
@@ -371,10 +372,17 @@ const formatTime = (timeStr: string) => {
   return date.toLocaleDateString()
 }
 
+const modelLabel = (model: AIModel) => {
+  if (model.model_name && model.model_name !== model.name) {
+    return `${model.name} (${model.model_name})`
+  }
+  return model.name
+}
+
 const loadTextModels = async () => {
   try {
     const res = await getAIModels('text')
-    textModels.value = Array.isArray(res) ? res : (res as any).data || []
+    textModels.value = (Array.isArray(res) ? res : (res as any).data || []).filter((m: AIModel) => m.is_active !== false)
     if (textModels.value.length && !form.model_id) {
       form.model_id = textModels.value[0].id
     }
@@ -679,6 +687,11 @@ onMounted(() => {
   loadHistory()
   loadSavedPPTs()
   loadUserTemplates()
+  // 从创作历史「编辑」跳转：携带 outline_id 时自动回填该大纲
+  const outlineId = route.query.outline_id
+  if (outlineId) {
+    loadHistoryItem(Number(outlineId))
+  }
 })
 </script>
 

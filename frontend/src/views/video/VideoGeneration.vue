@@ -20,7 +20,7 @@
                 <el-option
                   v-for="model in videoModels"
                   :key="model.id"
-                  :label="model.name"
+                  :label="modelLabel(model)"
                   :value="model.id"
                 />
               </el-select>
@@ -251,10 +251,17 @@ const galleryTotal = ref(0)
 const previewVisible = ref(false)
 const previewUrl = ref('')
 
+const modelLabel = (model: AIModel) => {
+  if (model.model_name && model.model_name !== model.name) {
+    return `${model.name} (${model.model_name})`
+  }
+  return model.name
+}
+
 const loadVideoModels = async () => {
   try {
     const res = await getAIModels('video')
-    videoModels.value = Array.isArray(res) ? res : (res as any).data || []
+    videoModels.value = (Array.isArray(res) ? res : (res as any).data || []).filter((m: AIModel) => m.is_active !== false)
     if (videoModels.value.length && !selectedModelId.value) {
       selectedModelId.value = videoModels.value[0].id
     }

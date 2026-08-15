@@ -2,6 +2,7 @@
 创作记录管理API
 """
 from typing import List, Optional
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
@@ -28,6 +29,8 @@ async def get_creations(
     content_type: Optional[str] = Query(None, description="内容类型筛选"),
     tool_type: Optional[str] = Query(None, description="工具类型筛选"),
     search: Optional[str] = Query(None, description="搜索关键词"),
+    start_date: Optional[str] = Query(None, description="开始日期 YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -56,6 +59,12 @@ async def get_creations(
                 Creation.output_content.like(search_pattern)
             )
         )
+
+    # 日期范围过滤（闭区间）
+    if start_date:
+        query = query.filter(Creation.created_at >= datetime.strptime(start_date, "%Y-%m-%d"))
+    if end_date:
+        query = query.filter(Creation.created_at < datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1))
     
     # 获取总数
     total = query.count()

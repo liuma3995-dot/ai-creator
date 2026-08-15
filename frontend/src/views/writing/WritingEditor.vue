@@ -42,7 +42,7 @@
 
               <el-form-item label="选择模型" prop="selectedModel">
                 <el-select v-model="selectedModel" placeholder="选择 AI 模型" style="width: 100%">
-                  <el-option v-for="model in aiModels" :key="model.id" :label="`${model.name} (${model.provider})`" :value="model.id" />
+                  <el-option v-for="model in aiModels" :key="model.id" :label="modelLabel(model)" :value="model.id" />
                 </el-select>
               </el-form-item>
               <el-alert type="info" title="API Key 模式说明" :closable="false">
@@ -533,10 +533,17 @@ const handleImageSelect = (image: ImageItem) => {
   ElMessage.success('已选择封面图')
 }
 
+const modelLabel = (model: AIModel) => {
+  if (model.model_name && model.model_name !== model.name) {
+    return `${model.name} (${model.model_name})`
+  }
+  return model.name
+}
+
 const loadModels = async () => {
   try {
     const res = await getAIModels('text')
-    aiModels.value = Array.isArray(res) ? res : (res.data || [])
+    aiModels.value = (Array.isArray(res) ? res : (res.data || [])).filter((m) => m.is_active !== false)
     if (aiModels.value.length > 0) {
       selectedModel.value = aiModels.value[0].id
     }

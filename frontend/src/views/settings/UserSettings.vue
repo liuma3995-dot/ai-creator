@@ -183,14 +183,15 @@
 
         <el-form-item label="模型能力">
           <el-checkbox-group v-model="modelForm.capabilities">
-            <el-checkbox label="text">文本生成</el-checkbox>
-            <el-checkbox label="image">图片生成</el-checkbox>
-            <el-checkbox label="video">视频生成</el-checkbox>
-            <el-checkbox label="audio">音频生成</el-checkbox>
+            <el-checkbox label="text" :disabled="capabilityDisabled('text')">文本生成</el-checkbox>
+            <el-checkbox label="image" :disabled="capabilityDisabled('image')">图片生成</el-checkbox>
+            <el-checkbox label="video" :disabled="capabilityDisabled('video')">视频生成</el-checkbox>
+            <el-checkbox label="audio" :disabled="capabilityDisabled('audio')">音频生成</el-checkbox>
           </el-checkbox-group>
           <div v-if="currentProviderConfig" class="form-tip">
             {{ currentProviderConfig.label }} 支持的能力：{{ currentProviderConfig.capabilities.map(c => capabilityLabels[c]).join('、') }}
           </div>
+          <div v-if="currentProviderConfig" class="form-tip">超出该厂商支持范围的能力不可勾选，避免配置了无法生成的内容类型</div>
         </el-form-item>
 
         <el-form-item label="启用状态">
@@ -274,6 +275,12 @@ const currentProviderConfig = computed(() => {
 const getProviderLabel = (provider: string): string => {
   const config = getProviderConfig(provider)
   return config?.label || provider
+}
+
+// 厂商不支持的能力禁止勾选（避免配置了后端无法生成的内容类型）
+const capabilityDisabled = (cap: ModelCapability): boolean => {
+  if (!currentProviderConfig.value) return false
+  return !currentProviderConfig.value.capabilities.includes(cap)
 }
 
 // 处理提供商变更

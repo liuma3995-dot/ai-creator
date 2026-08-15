@@ -40,6 +40,9 @@ class AIModelResponse(BaseModel):
     """AI模型响应（安全版本，不包含敏感信息）"""
     id: int
     name: str
+    provider: str = Field(..., description="提供商")
+    model_name: str = Field(..., description="模型标识")
+    base_url: Optional[str] = Field(None, description="API基础URL")
     is_active: bool = True
     is_default: bool = False
     is_system_builtin: bool = False
@@ -57,6 +60,9 @@ class AIModelAdminResponse(BaseModel):
     id: int
     user_id: int
     name: str
+    provider: str = Field(..., description="提供商")
+    model_name: str = Field(..., description="模型标识")
+    base_url: Optional[str] = Field(None, description="API基础URL")
     is_active: bool = True
     is_default: bool = False
     is_system_builtin: bool = False

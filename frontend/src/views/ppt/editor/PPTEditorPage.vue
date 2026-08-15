@@ -54,11 +54,11 @@ const templateId = computed(() => {
 })
 
 // PPTist部署地址
-// 开发环境：http://localhost:5173/
+// 开发环境：http://<host>:5174/（PPTist 独立 dev server，端口避开主应用 5173）
 // 生产环境：/pptist/
 const pptistUrl = computed(() => {
   const isDev = import.meta.env.DEV
-  return isDev ? 'http://localhost:5173/?embed=true' : '/pptist/?embed=true'
+  return isDev ? `http://${window.location.hostname}:5174/?embed=true` : '/pptist/?embed=true'
 })
 
 const goBack = () => {
@@ -120,11 +120,25 @@ const handleSave = () => {
   }, '*')
 }
 
-const handleExport = () => {
-  // 通过postMessage请求iframe导出PPTX
-  iframeRef.value?.contentWindow?.postMessage({
-    type: 'REQUEST_EXPORT'
-  }, '*')
+const handleExport = async () => {
+  // 导出前让用户自定义文件名，默认使用当前标题（保存过则为保存的标题）
+  try {
+    const { value: fileName } = await ElMessageBox.prompt('请输入导出文件名', '导出 PPTX', {
+      confirmButtonText: '导出',
+      cancelButtonText: '取消',
+      inputValue: title.value === 'PPT编辑器' ? '未命名演示文稿' : title.value,
+      inputPattern: /^[^\\/:*?"<>|]{1,100}$/,
+      inputErrorMessage: '文件名不能包含 \\ / : * ? " < > | 等字符',
+    })
+    if (!fileName) return
+    // 通过postMessage请求iframe按指定文件名导出PPTX
+    iframeRef.value?.contentWindow?.postMessage({
+      type: 'REQUEST_EXPORT',
+      data: { fileName },
+    }, '*')
+  } catch {
+    // 用户取消导出
+  }
 }
 
 // 根据ID加载模板
@@ -214,6 +228,10 @@ const handleMessage = async (event: MessageEvent) => {
         await saveToDatabase(data.slides)
       }
       break
+    case 'EXPORT_BLOB':
+      // PPTist 已生成 PPTX 文件流，由主应用（顶层窗口）弹系统“另存为”对话框
+      await saveBlobWithDialog(data?.blob, data?.fileName)
+      break
     case 'EXPORT_SUCCESS':
       ElMessage.success('导出成功')
       break
@@ -225,6 +243,18 @@ const handleMessage = async (event: MessageEvent) => {
       ElMessage.error(data?.message || '操作失败')
       break
   }
+}
+
+// 导出下载：文件名已在导出弹窗中由用户确认，直接下载到浏览器默认下载路径
+const saveBlobWithDialog = async (blob: Blob | undefined, fileName: string) => {
+  if (!blob) return
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('导出完成')
 }
 
 // 保存到数据库
@@ -254,6 +284,11 @@ const saveToDatabase = async (slides: any[]) => {
     currentPPTId.value = res.data.id
     title.value = pptTitle
     ElMessage.success('保存成功')
+    // 将标题同步给 PPTist，保证后续导出默认使用保存的标题
+    iframeRef.value?.contentWindow?.postMessage({
+      type: 'SET_TITLE',
+      data: { title: pptTitle },
+    }, '*')
   } catch (error: any) {
     if (error !== 'cancel') {
       console.error('Save to database failed:', error)

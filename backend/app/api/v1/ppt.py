@@ -24,6 +24,7 @@ router = APIRouter()
 
 class PPTGenerateRequest(BaseModel):
     topic: str
+    model_id: Optional[int] = None
     slides_count: Optional[int] = 10
     style: Optional[str] = None
     language: Optional[str] = None
@@ -454,76 +455,6 @@ async def download_ppt(
     raise HTTPException(status_code=404, detail="PPT文件不存在，请重新生成")
 
 
-@router.get("/templates")
-async def get_ppt_templates(db: Session = Depends(get_db)):
-    """获取PPT模板列表"""
-    try:
-        from app.models.ppt_template import PPTTemplate
-        
-        # 获取系统预设模板
-        system_templates = db.query(PPTTemplate).filter(
-            PPTTemplate.is_system == True
-        ).all()
-        
-        templates = []
-        for t in system_templates:
-            templates.append({
-                "id": t.id,
-                "name": t.name,
-                "category": t.category,
-                "style": t.style,
-                "description": t.description,
-                "thumbnail": t.thumbnail,
-            })
-        
-        # 如果没有预设模板，返回默认模板
-        if not templates:
-            templates = [
-                {"id": "default", "name": "默认模板", "category": "general", "style": "简约"},
-                {"id": "business", "name": "商务模板", "category": "business", "style": "商务"},
-                {"id": "simple", "name": "简约模板", "category": "general", "style": "简约"}
-            ]
-        
-        return success_response(data=templates, message="success")
-    except Exception as e:
-        logger.error(f"Get templates failed: {e}")
-        return success_response(data=[], message="success")
-
-
-@router.get("/templates/{template_id}")
-async def get_ppt_template(
-    template_id: int,
-    db: Session = Depends(get_db)
-):
-    """获取PPT模板详情（包含布局元数据）"""
-    try:
-        from app.models.ppt_template import PPTTemplate
-        
-        template = db.query(PPTTemplate).filter(PPTTemplate.id == template_id).first()
-        
-        if not template:
-            raise HTTPException(status_code=404, detail="模板不存在")
-        
-        return success_response(
-            data={
-                "id": template.id,
-                "name": template.name,
-                "category": template.category,
-                "style": template.style,
-                "description": template.description,
-                "thumbnail": template.thumbnail,
-                "file_path": template.file_path,
-                "layout_metadata": template.layout_metadata,
-            },
-            message="success"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Get template failed: {e}")
-        raise HTTPException(status_code=500, detail=f"获取模板失败: {str(e)}")
-
-
 @router.post("/generate-outline")
 async def generate_ppt_outline(
     request: PPTGenerateRequest,
@@ -562,11 +493,17 @@ async def generate_ppt_outline(
             detail=str(e),
         )
     
-    # 获取用户的AI模型
-    ai_model = db.query(AIModel).filter(
+    # 获取用户的AI模型（优先使用前端选择的模型，未传时回退到第一个启用模型）
+    model_query = db.query(AIModel).filter(
         AIModel.user_id == current_user.id,
         AIModel.is_active == True
-    ).first()
+    )
+    if request.model_id:
+        model_query = model_query.filter(AIModel.id == request.model_id)
+    ai_model = model_query.first()
+
+    if ai_model and "text" not in (ai_model.capabilities or []):
+        ai_model = None
     
     if not ai_model:
         # 退还积分
