@@ -39,8 +39,13 @@ async def get_creations(
     
     支持分页、筛选和搜索功能
     """
-    # 构建查询
-    query = db.query(Creation).filter(Creation.user_id == current_user.id)
+    # 只查列表所需字段，避免加载 output_data 大字段导致 MySQL 排序内存超限
+    list_columns = (
+        Creation.id, Creation.user_id, Creation.title, Creation.creation_type,
+        Creation.tool_type, Creation.status, Creation.output_content,
+        Creation.created_at, Creation.updated_at,
+    )
+    query = db.query(*list_columns).filter(Creation.user_id == current_user.id)
     
     # 内容类型筛选
     if content_type:
@@ -70,7 +75,8 @@ async def get_creations(
     total = query.count()
     
     # 分页和排序
-    creations = query.order_by(desc(Creation.created_at)).offset(skip).limit(limit).all()
+    rows = query.order_by(desc(Creation.created_at)).offset(skip).limit(limit).all()
+    creations = [dict(row._mapping) for row in rows]
     
     return {
         "total": total,

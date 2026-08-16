@@ -62,6 +62,8 @@ class StabilityImageGenerator(ImageGeneratorBase):
         
         # 确定输出格式
         output_format = kwargs.get("output_format", "png")
+        # 按模型映射生成端点（2026 官方模型）
+        endpoint_model = self._resolve_endpoint_model(model)
         
         try:
             headers = {
@@ -89,7 +91,7 @@ class StabilityImageGenerator(ImageGeneratorBase):
             
             async with httpx.AsyncClient(timeout=180.0) as client:
                 response = await client.post(
-                    f"{self.base_url}/stable-image/generate/sd3",
+                    f"{self.base_url}/stable-image/generate/{endpoint_model}",
                     headers=headers,
                     data=form_data
                 )
@@ -122,4 +124,23 @@ class StabilityImageGenerator(ImageGeneratorBase):
         return self.SUPPORTED_SIZES
     
     def get_supported_models(self) -> List[str]:
-        return ["sd3-large", "sd3-medium", "sd3-large-turbo", "stable-diffusion-xl-1024-v1-0"]
+        return [
+            "stable-image-core",
+            "stable-image-ultra",
+            "stable-diffusion-3.5-large",
+            "stable-diffusion-3.5-large-turbo",
+        ]
+
+    @staticmethod
+    def _resolve_endpoint_model(model: str) -> str:
+        """模型名 -> 官方端点路径映射"""
+        mapping = {
+            "stable-image-core": "core",
+            "stable-image-ultra": "ultra",
+            "stable-diffusion-3.5-large": "sd3.5-large",
+            "stable-diffusion-3.5-large-turbo": "sd3.5-large-turbo",
+            "sd3-large": "sd3-large",
+            "sd3-medium": "sd3-medium",
+            "sd3-large-turbo": "sd3-large-turbo",
+        }
+        return mapping.get(model, "core")

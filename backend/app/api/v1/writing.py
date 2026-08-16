@@ -281,13 +281,19 @@ def get_creations(
     """
     获取创作列表
     """
-    query = db.query(Creation).filter(Creation.user_id == current_user.id)
+    # 只查列表所需字段，避免加载 output_data 大字段导致 MySQL 排序内存超限
+    query = db.query(
+        Creation.id, Creation.user_id, Creation.title, Creation.creation_type,
+        Creation.tool_type, Creation.status, Creation.output_content,
+        Creation.created_at, Creation.updated_at,
+    ).filter(Creation.user_id == current_user.id)
     
     if tool_type:
         query = query.filter(Creation.tool_type == tool_type)
     
     total = query.count()
-    creations = query.order_by(Creation.created_at.desc()).offset(skip).limit(limit).all()
+    rows = query.order_by(Creation.created_at.desc()).offset(skip).limit(limit).all()
+    creations = [dict(row._mapping) for row in rows]
     
     return {
         "total": total,

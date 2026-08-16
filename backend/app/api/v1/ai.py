@@ -13,7 +13,7 @@ from app.core.exceptions import BusinessException
 from app.models import User, OAuthAccount, AIModel
 from app.schemas.common import success_response
 from app.schemas.ai_model import ChatRequest, ChatResponse
-from app.services.ai.factory import AIServiceFactory
+from app.services.langchain.compat import LangChainAIServiceFactory
 from app.services.model_service import ModelService
 from app.services.oauth.litellm_proxy import LiteLLMProxy
 from app.utils.deps import get_current_user
@@ -168,8 +168,13 @@ async def _call_api_key_model(
     if not ai_model:
         raise BusinessException("AI模型不存在或已禁用")
     
-    # 使用AI服务工厂调用
-    service = AIServiceFactory.create_service(ai_model.provider, ai_model.to_dict())
+    # 使用 LangChain 服务工厂调用（新协议，覆盖全部厂商）
+    service = LangChainAIServiceFactory.create_service(
+        provider=ai_model.provider,
+        api_key=ai_model.api_key,
+        model_name=ai_model.model_name,
+        base_url=ai_model.base_url,
+    )
     
     # 转换消息格式
     messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]

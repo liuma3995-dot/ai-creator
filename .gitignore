@@ -186,6 +186,9 @@ Thumbs.db
 *.temp
 .cache/
 
+# Generated media (local dev)
+uploads/
+
 # Cursor
 .cursorignore
 .cursorindexingignore

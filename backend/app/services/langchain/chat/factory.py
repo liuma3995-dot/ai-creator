@@ -125,29 +125,43 @@ class LangChainChatFactory:
             }
         
         elif provider == "zhipu":
+            # 智谱官方 OpenAI 兼容接口（open.bigmodel.cn/api/paas/v4）
             return {
                 "model": model_name,
                 "api_key": api_key,
+                "base_url": base_url,
             }
         
         elif provider == "qwen":
+            # 阿里百炼 OpenAI 兼容模式（compatible-mode/v1）
             return {
                 "model": model_name,
-                "dashscope_api_key": api_key,
+                "api_key": api_key,
+                "base_url": base_url,
             }
         
         elif provider == "baidu":
+            # 千帆 ModelBuilder OpenAI 兼容模式（qianfan.baidubce.com/v2），单 API Key
             return {
                 "model": model_name,
-                "qianfan_ak": api_key,
-                "qianfan_sk": kwargs.get("secret_key", ""),
+                "api_key": api_key,
+                "base_url": base_url,
             }
         
         elif provider == "hunyuan":
+            # 混元开放平台 OpenAI 兼容接口（api.hunyuan.cloud.tencent.com/v1），单 API Key
             return {
                 "model": model_name,
-                "hunyuan_secret_id": api_key,
-                "hunyuan_secret_key": kwargs.get("secret_key", ""),
+                "api_key": api_key,
+                "base_url": base_url,
+            }
+        
+        elif provider == "spark":
+            # 讯飞星火 HTTP OpenAI 兼容接口（spark-api-open.xf-yun.com/v1）
+            return {
+                "model": model_name,
+                "api_key": api_key,
+                "base_url": base_url,
             }
         
         elif provider == "minimax":
@@ -229,12 +243,12 @@ class LangChainChatFactory:
             raise ValueError("Stability AI 不支持文本对话，请使用图片生成功能")
         
         elif provider == "huggingface":
-            # Hugging Face 使用 OpenAI 兼容接口
+            # Hugging Face 使用 OpenAI 兼容接口（2026 官方推荐 AI Inference Router）
             from langchain_openai import ChatOpenAI
             return ChatOpenAI(
                 model=model_name,
                 api_key=api_key,
-                base_url=base_url or "https://api-inference.huggingface.co/v1",
+                base_url=base_url or "https://router.huggingface.co/v1",
             )
         
         elif provider == "modelscope":

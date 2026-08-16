@@ -31,7 +31,7 @@ class ZhipuImageGenerator(ImageGeneratorBase):
         self,
         api_key: str,
         api_base: Optional[str] = None,
-        default_model: Optional[str] = "cogview-3-plus",
+        default_model: Optional[str] = "cogview-4",
         **kwargs
     ):
         super().__init__(api_key, api_base, default_model, **kwargs)
@@ -111,4 +111,4 @@ class ZhipuImageGenerator(ImageGeneratorBase):
         return self.SUPPORTED_SIZES
     
     def get_supported_models(self) -> List[str]:
-        return ["cogview-3-plus", "cogview-3"]
+        return ["cogview-4", "cogview-3-plus", "cogview-3"]

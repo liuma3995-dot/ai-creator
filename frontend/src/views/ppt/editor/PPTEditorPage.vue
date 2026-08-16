@@ -36,6 +36,7 @@ import { ArrowLeft, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { savePPT } from '@/api/ppt'
 import { getPPTTemplateDetail } from '@/api/pptTemplate'
+import { loadAIPPTData, clearAIPPTData } from '@/utils/aipptBridge'
 
 const router = useRouter()
 const route = useRoute()
@@ -66,15 +67,7 @@ const goBack = () => {
 }
 
 const loadAIPPTDataFromStorage = () => {
-  try {
-    const dataJson = localStorage.getItem('pptist_aippt_data')
-    if (dataJson) {
-      return JSON.parse(dataJson)
-    }
-  } catch (e) {
-    console.error('Failed to load AIPPT data from localStorage:', e)
-  }
-  return null
+  return loadAIPPTData()
 }
 
 const loadSlidesFromStorage = () => {
@@ -201,7 +194,7 @@ const handleMessage = async (event: MessageEvent) => {
           // 发送AIPPT数据
           sendAIPPTToIframe(aipptData)
           // 清除数据，避免重复生成
-          localStorage.removeItem('pptist_aippt_data')
+          clearAIPPTData()
         } else {
           // 没有AIPPT数据，加载已保存的幻灯片
           const slides = loadSlidesFromStorage()

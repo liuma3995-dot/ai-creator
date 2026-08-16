@@ -140,12 +140,32 @@ async def get_topic_suggestions(
     ai_model = None
     
     if current_user:
-        # 获取用户的默认 AI 模型
-        ai_model = db.query(AIModel).filter(
+        # 用户启用的、具备文本生成能力的模型（Python 侧过滤 capabilities）
+        active_models = db.query(AIModel).filter(
             AIModel.user_id == current_user.id,
             AIModel.is_active == True,
-            
-        ).first()
+        ).all()
+        text_models = [m for m in active_models if "text" in (m.capabilities or [])]
+
+        if request.model_id:
+            # 前端指定模型
+            ai_model = next((m for m in text_models if m.id == request.model_id), None)
+            if not ai_model:
+                raise HTTPException(
+                    status_code=400,
+                    detail="所选模型不存在、未启用或不支持文本生成",
+                )
+        else:
+            # 未指定：优先默认模型，其次第一个文本模型
+            ai_model = next((m for m in text_models if m.is_default), None)
+            if not ai_model and text_models:
+                ai_model = text_models[0]
+
+        if not ai_model:
+            raise HTTPException(
+                status_code=400,
+                detail="请先配置支持文本生成的AI模型",
+            )
     
     try:
         result = await HotspotService.get_topic_suggestions(

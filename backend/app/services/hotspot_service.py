@@ -15,6 +15,7 @@ from app.schemas.hotspot import (
     CategoryInfo,
     WritingAngle,
     TopicSuggestResponse,
+    SuggestionModelInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -349,6 +350,15 @@ class HotspotService:
         
         logger.info(f"选题建议请求: title={hot_title}, url={url}")
         
+        # 构建模型信息（用于响应展示）
+        model_info = None
+        if ai_model:
+            model_info = SuggestionModelInfo(
+                name=ai_model.name,
+                provider=ai_model.provider,
+                model_name=ai_model.model_name,
+            )
+        
         # 如果有URL，先获取内容
         article_content = ""
         if url:
@@ -397,21 +407,21 @@ class HotspotService:
                     api_base=ai_model.base_url,
                 )
             else:
-                # 使用默认配置（需要在环境变量中配置）
-                service = LangChainService(
-                    provider="openai",
-                    model="gpt-3.5-turbo",
+                # 未登录/无模型：不调用 AI（无凭据），直接返回模板建议
+                logger.info("未登录或无可用模型，返回模板建议")
+                return cls._get_default_suggestions(
+                    hot_title, target_platforms, model=None
                 )
             
             response = await service.chat(prompt)
             
             # 解析 AI 响应
-            return cls._parse_topic_suggestions(hot_title, response.content)
+            return cls._parse_topic_suggestions(hot_title, response.content, model=model_info)
             
         except Exception as e:
             logger.error(f"AI 选题分析失败: {e}")
             # 返回默认建议
-            return cls._get_default_suggestions(hot_title, target_platforms)
+            return cls._get_default_suggestions(hot_title, target_platforms, model=model_info)
     
     @classmethod
     def _build_topic_suggestion_prompt(
@@ -488,7 +498,8 @@ class HotspotService:
     def _parse_topic_suggestions(
         cls,
         hot_title: str,
-        ai_response: str
+        ai_response: str,
+        model: Optional[SuggestionModelInfo] = None,
     ) -> TopicSuggestResponse:
         """解析 AI 返回的选题建议"""
         try:
@@ -516,17 +527,20 @@ class HotspotService:
                 background=data.get("background", ""),
                 angles=angles,
                 keywords=data.get("keywords", []),
+                model=model,
+                is_fallback=False,
             )
             
         except (json.JSONDecodeError, KeyError, IndexError) as e:
             logger.warning(f"解析 AI 响应失败: {e}, 使用默认建议")
-            return cls._get_default_suggestions(hot_title)
+            return cls._get_default_suggestions(hot_title, model=model)
     
     @classmethod
     def _get_default_suggestions(
         cls,
         hot_title: str,
         target_platforms: Optional[List[str]] = None,
+        model: Optional[SuggestionModelInfo] = None,
     ) -> TopicSuggestResponse:
         """获取默认选题建议（AI 失败时的兜底）"""
         default_tools = target_platforms or ["wechat_article", "xiaohongshu_note", "video_script"]
@@ -558,6 +572,8 @@ class HotspotService:
                 ),
             ],
             keywords=[hot_title, "热点", "热搜", "最新消息"],
+            model=model,
+            is_fallback=True,
         )
     
     @classmethod

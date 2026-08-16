@@ -38,7 +38,7 @@ class ZhipuVideoGenerator(VideoGeneratorBase):
         self,
         api_key: str,
         api_base: Optional[str] = None,
-        default_model: Optional[str] = "cogvideox",
+        default_model: Optional[str] = "cogvideox-3",
         **kwargs
     ):
         super().__init__(api_key, api_base, default_model, **kwargs)
@@ -187,4 +187,4 @@ class ZhipuVideoGenerator(VideoGeneratorBase):
         return self.SUPPORTED_SIZES
     
     def get_supported_models(self) -> List[str]:
-        return ["cogvideox", "cogvideox-flash"]
+        return ["cogvideox-3", "cogvideox-2", "cogvideox"]

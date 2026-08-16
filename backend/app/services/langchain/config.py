@@ -54,8 +54,9 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         capabilities=[Capability.TEXT, Capability.IMAGE],
         langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
-            "image": ["dall-e-3", "dall-e-2"],
+            # 2026：GPT-5 系列（gpt-4o/o3 等已退役）；dall-e 系列已停用，改用 gpt-image 系列
+            "text": ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3", "gpt-5.2", "gpt-5"],
+            "image": ["gpt-image-1", "gpt-image-1-mini"],
         },
         endpoints={
             "chat": "/chat/completions",
@@ -72,6 +73,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         langchain_class="langchain_anthropic.ChatAnthropic",
         models={
             "text": [
+                "claude-opus-4-7",
                 "claude-opus-4-6-20260206",
                 "claude-sonnet-4-6-20260217",
                 "claude-opus-4-5-20251101",
@@ -98,9 +100,9 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
         langchain_class="langchain_google_genai.ChatGoogleGenerativeAI",
         models={
-            "text": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
-            "image": ["imagen-3.0-generate-001"],
-            "video": ["veo-001"],
+            "text": ["gemini-3-pro", "gemini-3-flash", "gemini-3-deepthink", "gemini-2.5-pro", "gemini-2.5-flash"],
+            "image": ["imagen-4.0-generate-001", "imagen-4.0-ultra-generate-001", "gemini-2.5-flash-image"],
+            "video": ["veo-3.1", "veo-3"],
         },
         endpoints={
             "chat": "/models/{model}:generateContent",
@@ -116,11 +118,11 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         capabilities=[Capability.IMAGE, Capability.VIDEO],
         langchain_class=None,  # 需自定义
         models={
-            "image": ["sd3-large", "sd3-medium", "sd3-large-turbo", "stable-diffusion-xl-1024-v1-0"],
+            "image": ["stable-image-core", "stable-image-ultra", "stable-diffusion-3.5-large", "stable-diffusion-3.5-large-turbo"],
             "video": ["stable-video-diffusion"],
         },
         endpoints={
-            "image": "/stable-image/generate/sd3",
+            "image": "/stable-image/generate/core",
             "video": "/video/stable-video-diffusion",
         }
     ),
@@ -133,9 +135,9 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
         langchain_class="langchain_community.llms.Replicate",
         models={
-            "text": ["meta/llama-2-70b-chat", "meta/llama-3-70b-instruct"],
-            "image": ["stability-ai/sdxl", "black-forest-labs/flux-schnell", "black-forest-labs/flux-dev"],
-            "video": ["anotherjesse/zeroscope-v2-xl"],
+            "text": ["meta/llama-4-scout-17b-16e-instruct", "meta/llama-4-maverick-17b-128e-instruct"],
+            "image": ["black-forest-labs/flux-1.1-pro", "black-forest-labs/flux-schnell", "stability-ai/sdxl"],
+            "video": ["wan-video/wan-2.1-t2v-480p", "THUDM/cogvideox-5b"],
         },
         endpoints={
             "predictions": "/predictions",
@@ -150,11 +152,12 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         base_url="https://open.bigmodel.cn/api/paas/v4",
         auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
-        langchain_class="langchain_community.chat_models.ChatZhipuAI",
+        # 智谱官方 OpenAI 兼容接口，旧 ChatZhipuAI 适配器已弃用
+        langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["glm-4.6", "glm-4.5", "glm-4.5-air", "glm-4-plus", "glm-4-air", "glm-4-flash"],
-            "image": ["cogview-3-plus", "cogview-3"],
-            "video": ["cogvideox"],
+            "text": ["glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5", "glm-4-plus", "glm-4-air", "glm-4-flash"],
+            "image": ["cogview-4", "cogview-3-plus"],
+            "video": ["cogvideox-3", "cogvideox"],
         },
         endpoints={
             "chat": "/chat/completions",
@@ -166,63 +169,59 @@ PROVIDERS: Dict[str, ProviderConfig] = {
     "qwen": ProviderConfig(
         name="qwen",
         display_name="阿里通义",
-        base_url="https://dashscope.aliyuncs.com/api/v1",
+        # 阿里百炼 OpenAI 兼容模式（北京地域）；旧 dashscope/api/v1 + ChatTongyi 已弃用
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
-        langchain_class="langchain_community.chat_models.ChatTongyi",
+        langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["qwen3-max", "qwen3-plus", "qwen-turbo-latest", "qwen-max", "qwen-plus", "qwen-turbo"],
-            "image": ["wanx-v1", "wanx2.1-t2i-turbo", "wanx2.1-t2i-plus"],
+            "text": ["qwen3.7-max", "qwen3-max", "qwen-max", "qwen3.7-plus", "qwen-plus", "qwen3.7-flash", "qwen-turbo", "qwen3-coder-plus", "qwen3-coder-flash"],
+            "image": ["wanx2.1-t2i-turbo", "wanx2.1-t2i-plus"],
             "video": ["wanx2.1-t2v-turbo", "wanx2.1-t2v-plus"],
         },
         endpoints={
-            "chat": "/services/aigc/text-generation/generation",
-            "image": "/services/aigc/text2image/image-synthesis",
-            "video": "/services/aigc/video-generation/generation",
+            "chat": "/chat/completions",
+            "image": "/images/generations",
+            "video": "/video/generations",
         }
     ),
     
     "baidu": ProviderConfig(
         name="baidu",
         display_name="百度文心",
-        base_url="https://aip.baidubce.com",
-        auth_type=AuthType.DUAL_KEY,
+        # 千帆 ModelBuilder OpenAI 兼容模式（2026），单 API Key（bce-v3/ALTAK-xxx）
+        base_url="https://qianfan.baidubce.com/v2",
+        auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT, Capability.IMAGE],
-        langchain_class="langchain_community.chat_models.QianfanChatEndpoint",
-        supports_custom_url=False,  # 百度结构特殊，不建议自定义
+        langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["ernie-4.0-8k", "ernie-4.0-turbo-8k", "ernie-3.5-8k", "ernie-3.5-128k", "ernie-speed-8k", "ernie-lite-8k"],
-            "image": ["sd_xl"],
+            "text": ["ernie-5.1", "ernie-5.0", "ernie-4.5-turbo-128k", "ernie-4.5-8k"],
+            "image": ["ernie-4.5-turbo-128k"],
         },
         endpoints={
-            "token": "/oauth/2.0/token",
-            "chat_ernie4": "/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions_pro",
-            "chat_ernie35": "/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions",
-            "chat_ernie_speed": "/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/ernie_speed",
-            "image": "/rpc/2.0/ai_custom/v1/wenxinworkshop/text2image/sd_xl",
+            "chat": "/chat/completions",
+            "image": "/images/generations",
         }
     ),
     
     "doubao": ProviderConfig(
         name="doubao",
         display_name="火山引擎/豆包",
+        # 火山方舟 OpenAI 兼容接口；注意模型 ID 可能是控制台"推理接入点"（ep-xxx）
         base_url="https://ark.cn-beijing.volces.com/api/v3",
         auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
         langchain_class=None,  # 需自定义
         models={
             "text": [
-                "doubao-1.5-pro-256k", "doubao-1.5-pro-32k", 
-                "doubao-pro-256k", "doubao-pro-32k", "doubao-pro-4k",
-                "doubao-lite-32k", "doubao-lite-4k"
+                "doubao-seed-2.0-mini", "doubao-seed-2.0-lite", "doubao-seed-2.0-code",
+                "doubao-seed-1.6",
             ],
             "image": [
-                "seedream-5.0-lite", "seedream-4.5", "seedream-4.0", "seedream-3.0",
-                "seededit-3.0"  # 图片编辑
+                "doubao-seedream-5.0-pro", "doubao-seedream-5.0-lite", "doubao-seedream-4.5",
             ],
             "video": [
-                "seedance-2.0-pro", "seedance-1.5-pro", 
-                "seedance-1.0-pro", "seedance-1.0-lite"
+                "doubao-seedance-2.0", "doubao-seedance-2.0-fast", "doubao-seedance-1.5-pro",
             ],
         },
         endpoints={
@@ -235,17 +234,18 @@ PROVIDERS: Dict[str, ProviderConfig] = {
     "hunyuan": ProviderConfig(
         name="hunyuan",
         display_name="腾讯混元",
-        base_url="https://hunyuan.tencentcloudapi.com",
-        auth_type=AuthType.DUAL_KEY,
+        # 混元开放平台 OpenAI 兼容接口（2026），单 API Key；旧腾讯云 Action 协议已弃用
+        base_url="https://api.hunyuan.cloud.tencent.com/v1",
+        auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT, Capability.IMAGE],
-        langchain_class="langchain_community.chat_models.ChatHunyuan",
+        langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["hunyuan-pro", "hunyuan-standard", "hunyuan-lite", "hunyuan-turbo"],
-            "image": ["hunyuan-image"],
+            "text": ["hunyuan-t1-latest", "hunyuan-turbo-s-latest", "hunyuan-pro-latest", "hunyuan-standard-latest", "hunyuan-lite-latest"],
+            "image": ["hunyuan-image-latest"],
         },
         endpoints={
-            "chat": "/",  # 腾讯云 API 格式特殊，使用 Action 参数
-            "image": "/",
+            "chat": "/chat/completions",
+            "image": "/images/generations",
         }
     ),
     
@@ -260,8 +260,8 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         langchain_class="langchain_openai.ChatOpenAI",
         models={
             "text": ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-Text-01"],
-            "video": ["video-01", "video-01-live2d"],
-            "audio": ["speech-01", "speech-02"],
+            "video": ["MiniMax-Hailuo-2.3", "MiniMax-Hailuo-2.3-Fast", "MiniMax-Hailuo-02", "I2V-01"],
+            "audio": ["speech-2.8-hd", "speech-2.6-hd", "speech-01", "speech-02"],
         },
         endpoints={
             "chat": "/chat/completions",
@@ -273,19 +273,16 @@ PROVIDERS: Dict[str, ProviderConfig] = {
     "spark": ProviderConfig(
         name="spark",
         display_name="讯飞星火",
-        base_url="wss://spark-api.xf-yun.com",
-        auth_type=AuthType.TRIPLE_KEY,
+        # 星火 HTTP OpenAI 兼容接口（2026），Bearer APIKey；旧 WebSocket 三元组保留在 chat/providers/spark.py
+        base_url="https://spark-api-open.xf-yun.com/v1",
+        auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT],
-        langchain_class=None,  # 需自定义 (WebSocket)
-        supports_custom_url=False,
+        langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["spark-4.0-ultra", "spark-max", "spark-pro", "spark-lite"],
+            "text": ["4.0ultra", "max", "pro", "lite"],
         },
         endpoints={
-            "chat_ultra": "/v4.0/chat",
-            "chat_max": "/v3.5/chat",
-            "chat_pro": "/v3.1/chat",
-            "chat_lite": "/v1.1/chat",
+            "chat": "/chat/completions",
         }
     ),
     
@@ -298,7 +295,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         # Moonshot 官方 OpenAI 兼容，旧 MoonshotChat 适配器已过时
         langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["kimi-k2-0711-preview", "kimi-k2-turbo-preview", "kimi-latest", "moonshot-v1-128k", "moonshot-v1-32k"],
+            "text": ["kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5"],
         },
         endpoints={
             "chat": "/chat/completions",
@@ -313,7 +310,8 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         capabilities=[Capability.TEXT],
         langchain_class="langchain_openai.ChatOpenAI",  # OpenAI 兼容接口
         models={
-            "text": ["deepseek-chat", "deepseek-reasoner"],
+            # V4 系列（2026-04 发布）；deepseek-chat/reasoner 已于 2026-07-24 退役（自动迁移）
+            "text": ["deepseek-v4-flash", "deepseek-v4-pro"],
         },
         endpoints={
             "chat": "/chat/completions",
@@ -329,7 +327,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         # 百川官方 OpenAI 兼容，旧 ChatBaichuan 适配器已过时
         langchain_class="langchain_openai.ChatOpenAI",
         models={
-            "text": ["Baichuan4", "Baichuan3-Turbo", "Baichuan3-Turbo-128k", "Baichuan2-Turbo"],
+            "text": ["Baichuan-M3", "Baichuan-M2", "Baichuan-M1"],
         },
         endpoints={
             "chat": "/chat/completions",
@@ -341,22 +339,22 @@ PROVIDERS: Dict[str, ProviderConfig] = {
     "huggingface": ProviderConfig(
         name="huggingface",
         display_name="Hugging Face",
-        base_url="https://api-inference.huggingface.co/v1",
+        # 2026 官方推荐 AI Inference Router（OpenAI 兼容，仅 chat）；图片走专用 Inference API
+        base_url="https://router.huggingface.co/v1",
         auth_type=AuthType.API_KEY,
         capabilities=[Capability.TEXT, Capability.IMAGE, Capability.VIDEO],
         langchain_class=None,  # 需自定义实现（使用OpenAI兼容接口）
         models={
             "text": [
+                "Qwen/Qwen3-32B",
+                "Qwen/Qwen3-8B",
+                "deepseek-ai/DeepSeek-R1",
+                "meta-llama/Llama-3.3-70B-Instruct",
                 "meta-llama/Llama-3.1-8B-Instruct",
-                "microsoft/Phi-3-mini-4k-instruct",
                 "mistralai/Mistral-7B-Instruct-v0.3",
-                "Qwen/Qwen2.5-7B-Instruct",
             ],
             "image": [
                 "stabilityai/stable-diffusion-xl-base-1.0",
-                "stabilityai/stable-diffusion-2-1",
-                "runwayml/stable-diffusion-v1-5",
-                "CompVis/stable-diffusion-v1-4",
                 "stabilityai/sdxl-turbo",
             ],
             "video": [
@@ -381,20 +379,16 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         langchain_class=None,  # 需自定义实现（使用OpenAI兼容接口）
         models={
             "text": [
-                "Qwen/Qwen2.5-7B-Instruct",
-                "Qwen/Qwen2.5-14B-Instruct",
-                "iic/nlp_gpt3_text-generation_chinese-base",
+                "Qwen/Qwen3-32B",
+                "Qwen/Qwen3-8B",
+                "Qwen/Qwen3-VL-8B-Instruct",
             ],
             "image": [
+                "Tongyi-MAI/Z-Image-Turbo",
                 "stabilityai/stable-diffusion-xl-base-1.0",
-                "iic/Colorize-SD",
-                "AI-ModelScope/dreamshaper-xl-v2-turbo",
-                "iic/GroundingDINO_SwinT",
             ],
             "video": [
                 "iic/text-to-video-synthesis",
-                "iic/VideoComposer",
-                "AI-ModelScope/video-crafter",
             ],
         },
         endpoints={

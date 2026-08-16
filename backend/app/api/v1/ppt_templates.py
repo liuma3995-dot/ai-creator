@@ -389,6 +389,30 @@ async def delete_ppt_template(
         raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
 
 
+@router.post("/ppt-templates/{template_id}/use")
+async def increment_ppt_template_use(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """递增 PPT 模板使用次数（用户选中模板生成 PPT 时调用）"""
+    template = db.query(ContentTemplate).filter(
+        ContentTemplate.id == template_id,
+        ContentTemplate.platform == "ppt",
+    ).first()
+
+    if not template:
+        raise HTTPException(status_code=404, detail="模板不存在")
+
+    template.use_count = (template.use_count or 0) + 1
+    db.commit()
+
+    return success_response(
+        data={"use_count": template.use_count},
+        message="success",
+    )
+
+
 @router.get("/ppt-templates/thumbnails/{filename}")
 async def get_template_thumbnail(filename: str):
     """获取模板缩略图"""

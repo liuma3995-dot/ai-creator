@@ -65,3 +65,8 @@ export function uploadPPTTemplate(data: {
 export function deletePPTTemplate(id: number) {
   return request.delete(`/v1/ppt-templates/${id}`)
 }
+
+// 递增模板使用次数（生成PPT时调用）
+export function usePPTTemplate(id: number) {
+  return request.post(`/v1/ppt-templates/${id}/use`)
+}

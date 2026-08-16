@@ -53,6 +53,7 @@ export interface TopicSuggestRequest {
   url?: string
   user_domain?: string
   target_platforms?: string[]
+  model_id?: number
 }
 
 // 创作角度
@@ -70,6 +71,12 @@ export interface TopicSuggestResponse {
   background: string
   angles: WritingAngle[]
   keywords: string[]
+  model?: {
+    name: string
+    provider: string
+    model_name: string
+  }
+  is_fallback?: boolean
 }
 
 /**

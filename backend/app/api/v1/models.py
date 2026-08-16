@@ -18,7 +18,7 @@ from app.schemas.ai_model import (
     AIModelTestRequest,
     AIModelTestResponse
 )
-from app.services.ai.factory import AIServiceFactory
+from app.services.langchain.compat import LangChainAIServiceFactory
 
 router = APIRouter()
 
@@ -230,7 +230,7 @@ async def test_model(
         raise HTTPException(status_code=404, detail="模型不存在")
 
     try:
-        ai_service = AIServiceFactory.create_service(
+        ai_service = LangChainAIServiceFactory.create_service(
             provider=model.provider,
             api_key=model.api_key,
             model_name=model.model_name,

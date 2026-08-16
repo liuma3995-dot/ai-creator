@@ -15,12 +15,12 @@ echo.
 REM Pre-checks: MySQL and Memurai services
 sc query MySQL80 | find "RUNNING" >nul || (
     echo [ERROR] MySQL service MySQL80 is not running.
-    pause
+    if /i not "%1"=="nopause" pause
     exit /b 1
 )
 sc query Memurai | find "RUNNING" >nul || (
     echo [ERROR] Memurai Redis service is not running.
-    pause
+    if /i not "%1"=="nopause" pause
     exit /b 1
 )
 
@@ -28,12 +28,12 @@ REM Dependency checks
 if not exist "%PY%" (
     echo [ERROR] Backend venv not found: %PY%
     echo         Run: cd backend ^&^& python -m venv venv ^&^& pip install -r requirements.txt
-    pause
+    if /i not "%1"=="nopause" pause
     exit /b 1
 )
 if not exist "%ROOT%\frontend\node_modules" (
     echo [ERROR] Frontend dependencies missing. Run: cd frontend ^&^& npm install
-    pause
+    if /i not "%1"=="nopause" pause
     exit /b 1
 )
 if not exist "%ROOT%\backend\.env" (
@@ -70,7 +70,7 @@ if %AIC_BACK_WAIT% geq 30 (
     echo [ERROR] Backend did not become healthy within 60s.
     echo         Check the ai-creator-backend window for errors.
     echo         After fixing, close that window and rerun this script.
-    pause
+    if /i not "%1"=="nopause" pause
     exit /b 1
 )
 ping -n 2 127.0.0.1 >nul
@@ -103,7 +103,7 @@ set /a AIC_FRONT_WAIT+=1
 if %AIC_FRONT_WAIT% geq 15 (
     echo [ERROR] Frontend did not become ready within 30s.
     echo         Check the ai-creator-frontend window for errors.
-    pause
+    if /i not "%1"=="nopause" pause
     exit /b 1
 )
 ping -n 2 127.0.0.1 >nul
@@ -136,7 +136,7 @@ set /a AIC_PPTIST_WAIT+=1
 if %AIC_PPTIST_WAIT% geq 30 (
     echo [ERROR] PPTist did not become ready within 60s.
     echo         Check the ai-creator-pptist window for errors.
-    pause
+    if /i not "%1"=="nopause" pause
     exit /b 1
 )
 ping -n 2 127.0.0.1 >nul

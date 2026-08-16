@@ -93,6 +93,7 @@ async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError):
 # 挂载静态文件目录
 import os
 os.makedirs("uploads/images", exist_ok=True)
+os.makedirs("uploads/videos", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 

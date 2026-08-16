@@ -37,6 +37,8 @@ class TextToVideoRequest(BaseModel):
     voice: Optional[str] = None
     background_music: bool = False
     subtitle: bool = True
+    duration: int = 6
+    resolution: str = "768P"
     platform: Optional[str] = None  # 支持Cookie模式
 
 
@@ -46,6 +48,9 @@ class ImageToVideoRequest(BaseModel):
     model_id: Optional[int] = None
     transition: str = "fade"
     duration_per_image: int = 3
+    motion_prompt: Optional[str] = None
+    duration: int = 6
+    resolution: str = "768P"
     platform: Optional[str] = None  # 支持Cookie模式
 
 
@@ -56,6 +61,63 @@ class VideoTaskResponse(BaseModel):
     video_url: Optional[str] = None
     script: Optional[str] = None
     progress: Optional[int] = None
+    error: Optional[str] = None
+
+
+# 视频存储目录
+VIDEO_STORAGE_DIR = "uploads/videos"
+
+
+def save_video_from_url(url: str, filename: str = None) -> str:
+    """
+    下载视频到本地存储，返回保存后的URL
+
+    Args:
+        url: 视频下载地址（临时链接）
+        filename: 可选的文件名
+
+    Returns:
+        保存后的URL路径
+    """
+    import os
+    import httpx
+
+    os.makedirs(VIDEO_STORAGE_DIR, exist_ok=True)
+    if not filename:
+        filename = f"video_{uuid.uuid4().hex[:12]}.mp4"
+    if not filename.lower().endswith((".mp4", ".webm", ".mov", ".mkv")):
+        filename = f"{filename}.mp4"
+
+    filepath = os.path.join(VIDEO_STORAGE_DIR, filename)
+    response = httpx.get(url, timeout=180.0, follow_redirects=True)
+    response.raise_for_status()
+    with open(filepath, "wb") as f:
+        f.write(response.content)
+    return f"/uploads/videos/{os.path.basename(filepath)}"
+
+
+def _resolve_video_model(db: Session, user_id: int, requested_model_id: Optional[int] = None):
+    """解析用户启用的视频生成模型：优先前端选择，未传则取第一个"""
+    from app.models.ai_model import AIModel
+
+    active_models = (
+        db.query(AIModel)
+        .filter(AIModel.user_id == user_id, AIModel.is_active == True)
+        .all()
+    )
+    # capabilities 是 JSON 数组，Python 侧过滤（不能用 SQL contains 做子串匹配）
+    video_models = [m for m in active_models if "video" in (m.capabilities or [])]
+
+    if requested_model_id:
+        ai_model = next((m for m in video_models if m.id == requested_model_id), None)
+        if not ai_model:
+            raise ValueError("所选模型不存在、未启用或不支持视频生成")
+    else:
+        ai_model = video_models[0] if video_models else None
+
+    if not ai_model:
+        raise ValueError("请先配置支持视频生成的AI模型")
+    return ai_model
 
 
 # Background task processing functions
@@ -167,45 +229,115 @@ async def process_video_generation(db: Session, creation_id: int, request_data: 
 
 
 async def process_text_to_video(db: Session, creation_id: int, request_data: dict):
-    """后台处理文本转视频任务"""
+    """后台处理文本转视频任务 - 真实调用用户配置的视频模型"""
     try:
-        await asyncio.sleep(5)
-        
-        video_url = f"https://example.com/text_video_{uuid.uuid4().hex[:8]}.mp4"
-        
         creation = db.query(Creation).filter(Creation.id == creation_id).first()
-        if creation:
-            creation.status = "completed"
-            creation.output_data = {"video_url": video_url}
-            creation.completed_at = datetime.utcnow()
-            db.commit()
+        if not creation:
+            logger.error(f"Creation {creation_id} not found")
+            return
+
+        ai_model = _resolve_video_model(
+            db, creation.user_id, (creation.input_data or {}).get("model_id")
+        )
+
+        from app.services.langchain.video.factory import VideoGeneratorFactory
+
+        generator = VideoGeneratorFactory.create(
+            provider=ai_model.provider,
+            api_key=ai_model.api_key,
+            model=ai_model.model_name,
+            api_base=ai_model.base_url,
+        )
+
+        result = await generator.generate(
+            prompt=request_data.get("text", ""),
+            duration=request_data.get("duration", 6),
+            resolution=request_data.get("resolution", "768P"),
+        )
+
+        if not result.success or not result.videos:
+            raise ValueError(result.error or "视频生成失败")
+
+        # 下载视频到本地存储，历史记录永久可看
+        video_url = save_video_from_url(result.videos[0])
+
+        creation.status = "completed"
+        creation.output_data = {"video_url": video_url}
+        creation.error_message = None
+        creation.completed_at = datetime.utcnow()
+        db.commit()
+        logger.info(f"Text-to-video completed: creation={creation_id}, url={video_url}")
     except Exception as e:
-        creation = db.query(Creation).filter(Creation.id == creation_id).first()
-        if creation:
-            creation.status = "failed"
-            creation.output_data = {"error": str(e)}
-            db.commit()
+        logger.error(f"Text-to-video failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            creation = db.query(Creation).filter(Creation.id == creation_id).first()
+            if creation:
+                creation.status = "failed"
+                creation.error_message = str(e)
+                creation.output_data = {"error": str(e)}
+                db.commit()
+        except Exception as db_error:
+            logger.error(f"Failed to update creation status: {db_error}")
 
 
 async def process_image_to_video(db: Session, creation_id: int, request_data: dict):
-    """后台处理图片转视频任务"""
+    """后台处理图片转视频任务 - 真实调用用户配置的视频模型"""
     try:
-        await asyncio.sleep(5)
-        
-        video_url = f"https://example.com/image_video_{uuid.uuid4().hex[:8]}.mp4"
-        
         creation = db.query(Creation).filter(Creation.id == creation_id).first()
-        if creation:
-            creation.status = "completed"
-            creation.output_data = {"video_url": video_url}
-            creation.completed_at = datetime.utcnow()
-            db.commit()
+        if not creation:
+            logger.error(f"Creation {creation_id} not found")
+            return
+
+        ai_model = _resolve_video_model(
+            db, creation.user_id, (creation.input_data or {}).get("model_id")
+        )
+
+        from app.services.langchain.video.factory import VideoGeneratorFactory
+
+        generator = VideoGeneratorFactory.create(
+            provider=ai_model.provider,
+            api_key=ai_model.api_key,
+            model=ai_model.model_name,
+            api_base=ai_model.base_url,
+        )
+
+        images = request_data.get("images") or []
+        image_url = images[0] if images else None
+        prompt = request_data.get("motion_prompt") or "让图片中的内容自然动起来，保持画面主体与风格一致"
+
+        result = await generator.generate(
+            prompt=prompt,
+            image_url=image_url,
+            duration=request_data.get("duration", 6),
+            resolution=request_data.get("resolution", "768P"),
+        )
+
+        if not result.success or not result.videos:
+            raise ValueError(result.error or "视频生成失败")
+
+        video_url = save_video_from_url(result.videos[0])
+
+        creation.status = "completed"
+        creation.output_data = {"video_url": video_url}
+        creation.error_message = None
+        creation.completed_at = datetime.utcnow()
+        db.commit()
+        logger.info(f"Image-to-video completed: creation={creation_id}, url={video_url}")
     except Exception as e:
-        creation = db.query(Creation).filter(Creation.id == creation_id).first()
-        if creation:
-            creation.status = "failed"
-            creation.output_data = {"error": str(e)}
-            db.commit()
+        logger.error(f"Image-to-video failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            creation = db.query(Creation).filter(Creation.id == creation_id).first()
+            if creation:
+                creation.status = "failed"
+                creation.error_message = str(e)
+                creation.output_data = {"error": str(e)}
+                db.commit()
+        except Exception as db_error:
+            logger.error(f"Failed to update creation status: {db_error}")
 
 
 @router.post("/generate")
@@ -323,6 +455,7 @@ async def text_to_video(
         
         creation = Creation(
             user_id=current_user.id,
+            creation_type="video",
             tool_type="text_to_video",
             title=f"文本转视频: {request.text[:50]}",
             input_data={
@@ -330,7 +463,9 @@ async def text_to_video(
                 "model_id": request.model_id,
                 "voice": request.voice,
                 "background_music": request.background_music,
-                "subtitle": request.subtitle
+                "subtitle": request.subtitle,
+                "duration": request.duration,
+                "resolution": request.resolution
             },
             model_id=request.model_id,
             status="processing",
@@ -403,13 +538,17 @@ async def image_to_video(
         
         creation = Creation(
             user_id=current_user.id,
+            creation_type="video",
             tool_type="image_to_video",
             title=f"图片转视频: {len(request.images)}张图片",
             input_data={
                 "images": request.images,
                 "model_id": request.model_id,
                 "transition": request.transition,
-                "duration_per_image": request.duration_per_image
+                "duration_per_image": request.duration_per_image,
+                "motion_prompt": request.motion_prompt,
+                "duration": request.duration,
+                "resolution": request.resolution
             },
             model_id=request.model_id,
             status="processing",
@@ -482,7 +621,8 @@ async def get_video_task_status(
                 task_id=task_id,
                 status=creation.status,
                 video_url=video_url,
-                progress=progress
+                progress=progress,
+                error=creation.error_message if creation.status == "failed" else None,
             ),
             message="获取成功"
         )
@@ -596,9 +736,13 @@ async def get_video_gallery(
     try:
         from sqlalchemy import desc
         
-        # 查询用户的视频创作记录（支持多种creation_type）
-        query = db.query(Creation).filter(
+        # 只查视频创作记录（过滤掉 PPT 等含大 output_data 的记录，避免排序内存超限），
+        # 且只查列表所需字段
+        query = db.query(
+            Creation.id, Creation.input_data, Creation.output_data, Creation.created_at
+        ).filter(
             Creation.user_id == current_user.id,
+            Creation.creation_type == "video",
             Creation.status == "completed",
             Creation.output_data.isnot(None)
         )

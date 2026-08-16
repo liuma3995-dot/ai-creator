@@ -4,6 +4,9 @@
 支持通义万相视频生成模型
 - 文生视频 (text-to-video)
 - 图生视频 (image-to-video)
+
+注意：wanx 文生视频为 DashScope 旧版协议（官方标注 legacy 但仍维护），
+异步任务模式：创建任务 -> 轮询获取结果。
 """
 
 import asyncio

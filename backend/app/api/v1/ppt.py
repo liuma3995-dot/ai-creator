@@ -762,14 +762,15 @@ async def enrich_slide(
     from app.services.writing_service import WritingService
     from app.models.ai_model import AIModel
     
-    # 获取AI模型
+    # 获取AI模型（需启用且支持文本生成）
     ai_model = db.query(AIModel).filter(
         AIModel.id == request.model_id,
-        AIModel.user_id == current_user.id
+        AIModel.user_id == current_user.id,
+        AIModel.is_active == True,
     ).first()
     
-    if not ai_model:
-        raise HTTPException(status_code=400, detail="AI模型不存在")
+    if not ai_model or "text" not in (ai_model.capabilities or []):
+        raise HTTPException(status_code=400, detail="AI模型不存在、未启用或不支持文本生成")
     
     # 构建提示词
     bullets_text = "\n".join([f"- {b}" for b in request.bullets])
@@ -896,16 +897,19 @@ async def get_saved_ppts(
     current_user: User = Depends(get_current_user)
 ):
     """获取已保存的PPT列表"""
-    query = db.query(Creation).filter(
+    # 只查列表所需字段，避免加载 output_data 大字段导致 MySQL 排序内存超限
+    query = db.query(
+        Creation.id, Creation.title, Creation.status, Creation.created_at
+    ).filter(
         Creation.user_id == current_user.id,
         Creation.tool_type == "ppt_editor"
     )
     
     total = query.count()
-    creations = query.order_by(Creation.created_at.desc()).offset(skip).limit(limit).all()
+    rows = query.order_by(Creation.created_at.desc()).offset(skip).limit(limit).all()
     
     items = []
-    for c in creations:
+    for c in rows:
         items.append({
             "id": c.id,
             "title": c.title,

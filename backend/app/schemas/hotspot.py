@@ -55,6 +55,14 @@ class TopicSuggestRequest(BaseModel):
     url: Optional[str] = Field(None, description="可选的热点链接，用于获取内容生成更精准的选题建议")
     user_domain: Optional[str] = Field(None, description="用户领域（如：科技、娱乐、职场等）")
     target_platforms: Optional[List[str]] = Field(None, description="目标平台列表")
+    model_id: Optional[int] = Field(None, description="指定使用的AI模型ID（不传则用默认模型）")
+
+
+class SuggestionModelInfo(BaseModel):
+    """选题建议使用的模型信息"""
+    name: str = Field(..., description="模型名称")
+    provider: str = Field(..., description="供应商")
+    model_name: str = Field(..., description="模型标识")
 
 
 class WritingAngle(BaseModel):
@@ -72,6 +80,8 @@ class TopicSuggestResponse(BaseModel):
     background: str = Field(..., description="热点背景分析")
     angles: List[WritingAngle] = Field(..., description="创作角度列表")
     keywords: List[str] = Field(..., description="相关关键词")
+    model: Optional[SuggestionModelInfo] = Field(None, description="使用的AI模型信息")
+    is_fallback: bool = Field(False, description="是否为模板兜底建议（AI 分析失败/未登录）")
 
 
 class ExtractKeywordsRequest(BaseModel):

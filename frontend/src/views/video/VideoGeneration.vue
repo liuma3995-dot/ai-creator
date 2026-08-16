@@ -47,19 +47,16 @@
                   <el-col :span="12">
                     <el-form-item label="时长">
                       <el-select v-model="textForm.duration" style="width: 100%">
-                        <el-option label="5秒" :value="5" />
+                        <el-option label="6秒" :value="6" />
                         <el-option label="10秒" :value="10" />
-                        <el-option label="15秒" :value="15" />
-                        <el-option label="30秒" :value="30" />
                       </el-select>
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="画幅">
-                      <el-select v-model="textForm.aspect_ratio" style="width: 100%">
-                        <el-option label="16:9" value="16:9" />
-                        <el-option label="9:16" value="9:16" />
-                        <el-option label="1:1" value="1:1" />
+                    <el-form-item label="分辨率">
+                      <el-select v-model="textForm.resolution" style="width: 100%">
+                        <el-option label="768P（默认）" value="768P" />
+                        <el-option label="1080P" value="1080P" :disabled="textForm.duration === 10" />
                       </el-select>
                     </el-form-item>
                   </el-col>
@@ -96,6 +93,12 @@
                     show-word-limit
                     placeholder="描述图片中元素的运动方式"
                   />
+                </el-form-item>
+                <el-form-item label="时长">
+                  <el-select v-model="imageForm.duration" style="width: 100%">
+                    <el-option label="6秒" :value="6" />
+                    <el-option label="10秒" :value="10" />
+                  </el-select>
                 </el-form-item>
               </el-form>
             </el-tab-pane>
@@ -218,7 +221,7 @@ import type { AIModel } from '@/types'
 
 const userStore = useUserStore()
 
-interface TextForm { prompt: string; duration: number; aspect_ratio: string; style: string }
+interface TextForm { prompt: string; duration: number; resolution: string; style: string }
 interface ImageForm { image: File | null; motion_prompt: string; duration: number; image_data_url?: string }
 interface VideoTask { id: string; status: 'processing' | 'completed' | 'failed'; progress: number; video_url?: string; error?: string }
 
@@ -236,8 +239,8 @@ const videoModels = ref<AIModel[]>([])
 const selectedModelId = ref<number | undefined>(undefined)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-const textForm = reactive<TextForm>({ prompt: '', duration: 10, aspect_ratio: '16:9', style: 'realistic' })
-const imageForm = reactive<ImageForm>({ image: null, motion_prompt: '', duration: 5 })
+const textForm = reactive<TextForm>({ prompt: '', duration: 6, resolution: '768P', style: 'realistic' })
+const imageForm = reactive<ImageForm>({ image: null, motion_prompt: '', duration: 6 })
 
 // 视频库相关
 const galleryExpanded = ref(true)
@@ -314,6 +317,8 @@ const generateVideo = async () => {
         ? await request.post('/v1/video/text-to-video', {
             model_id: selectedModelId.value,
             text: textForm.prompt,
+            duration: textForm.duration,
+            resolution: textForm.resolution,
             background_music: false,
             subtitle: true,
           })
@@ -322,6 +327,9 @@ const generateVideo = async () => {
             images: imageForm.image_data_url ? [imageForm.image_data_url] : [],
             transition: 'fade',
             duration_per_image: imageForm.duration,
+            motion_prompt: imageForm.motion_prompt,
+            duration: imageForm.duration,
+            resolution: '768P',
           })
 
     const task = response.data

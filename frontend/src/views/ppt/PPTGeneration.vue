@@ -221,10 +221,7 @@
           <div class="section-header">
             <h3>选择模板</h3>
             <p class="tip">选择一个PPT模板，系统会根据模板样式生成PPT</p>
-            <el-button type="primary" link @click="showUploadDialog = true">
-              <el-icon><Upload /></el-icon>
-              上传PPTX模板
-            </el-button>
+            <!-- 上传PPTX模板功能已临时下线（自定义模板兼容性问题），组件与接口保留便于恢复 -->
           </div>
           
           <div class="template-grid">
@@ -310,12 +307,13 @@
 import { reactive, ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, Delete, Close, ArrowLeft, ArrowRight, VideoPlay, Check, Upload } from '@element-plus/icons-vue'
+import { MagicStick, Delete, Close, ArrowLeft, ArrowRight, VideoPlay, Check } from '@element-plus/icons-vue'
 import request from '@/api/request'
 import { getAIModels } from '@/api/models'
 import { generatePPTOutline, getPPTOutlines, getPPTOutline, getSavedPPTs, getSavedPPT, type PPTOutline, type PPTOutlineItem } from '@/api/ppt'
-import { getPPTTemplates, getPPTTemplateDetail, deletePPTTemplate, type PPTTemplate } from '@/api/pptTemplate'
+import { getPPTTemplateDetail, deletePPTTemplate, usePPTTemplate, type PPTTemplate } from '@/api/pptTemplate'
 import { convertOutlineToAIPPT } from '@/utils/pptistConverter'
+import { saveAIPPTData } from '@/utils/aipptBridge'
 import PPTXUpload from '@/components/ppt/PPTXUpload.vue'
 import { useUserStore } from '@/store/user'
 import type { AIModel } from '@/types'
@@ -427,12 +425,8 @@ const loadSavedPPTs = async () => {
 }
 
 const loadUserTemplates = async () => {
-  try {
-    const res = await getPPTTemplates(0, 20)
-    userTemplates.value = res.data?.items || []
-  } catch (e) {
-    console.error('加载用户模板失败:', e)
-  }
+  // 上传PPTX模板功能已临时下线：不再加载自定义模板，避免已上传模板仍可被选中
+  userTemplates.value = []
 }
 
 const handleUploadSuccess = (template: { id: number; name: string; thumbnail?: string }) => {
@@ -580,6 +574,8 @@ const handleGeneratePPT = async () => {
     // 如果是用户上传的模板（user-前缀），预先加载模板数据
     if (selectedTemplateId.value.startsWith('user-')) {
       const templateIdNum = parseInt(selectedTemplateId.value.replace('user-', ''))
+      // 递增模板使用次数（不影响生成主流程）
+      usePPTTemplate(templateIdNum).catch(() => {})
       try {
         const templateRes = await getPPTTemplateDetail(templateIdNum)
         console.log('获取到的模板数据:', templateRes.data)
@@ -596,8 +592,8 @@ const handleGeneratePPT = async () => {
       }
     }
     
-    // 4. 存储数据到localStorage
-    localStorage.setItem('pptist_aippt_data', JSON.stringify(aipptData))
+    // 4. 存储数据（内存优先，localStorage 兜底，避免大模板超限）
+    saveAIPPTData(aipptData)
     
     ElMessage.success('内容已丰富，正在跳转到编辑器...')
     userStore.refreshCredits()
@@ -989,6 +985,7 @@ onMounted(() => {
   overflow-y: auto;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  align-content: start;
   gap: 16px;
   padding-right: 8px;
 }

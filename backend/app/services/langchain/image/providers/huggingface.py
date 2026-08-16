@@ -1,61 +1,49 @@
 """
-Hugging Face 图片生成
+Hugging Face 图片生成（Inference API）
 
-通过 Hugging Face Inference Endpoints (OpenAI兼容) 调用开源图片生成模型。
-
-支持模型：
-- stabilityai/stable-diffusion-xl-base-1.0
-- stabilityai/stable-diffusion-2-1
-- runwayml/stable-diffusion-v1-5
-- stabilityai/sdxl-turbo
-
-API文档: https://huggingface.co/docs/api-inference/
+说明：HF Router 的 OpenAI 兼容端点（router.huggingface.co/v1）仅支持 chat，
+图片生成需走专用 Inference API（api-inference.huggingface.co/models/{model}）。
 """
 
+import asyncio
+import base64
 import logging
 from typing import List, Optional
+
+import httpx
 
 from ..base import ImageGeneratorBase, ImageGenerationResult
 
 logger = logging.getLogger(__name__)
 
 
-
-
-
 class HuggingFaceImageGenerator(ImageGeneratorBase):
     """
-    Hugging Face 图片生成器
-    
-    使用 Hugging Face Inference API 调用开源图片生成模型。
-    免费使用，有速率限制（约30请求/分钟）。
-    
-    特点：
-    - 完全免费
-    - 支持多种开源模型
-    - 返回图片URL或base64
+    Hugging Face 图片生成器（Inference API）
+
+    支持模型：
+    - stabilityai/stable-diffusion-xl-base-1.0
+    - stabilityai/sdxl-turbo
+    - black-forest-labs/FLUX.1-schnell
     """
-    
+
     provider_name = "huggingface"
-    
-    # 支持的模型
+
     SUPPORTED_MODELS = [
         "stabilityai/stable-diffusion-xl-base-1.0",
-        "stabilityai/stable-diffusion-2-1",
-        "runwayml/stable-diffusion-v1-5",
-        "CompVis/stable-diffusion-v1-4",
         "stabilityai/sdxl-turbo",
+        "black-forest-labs/FLUX.1-schnell",
     ]
-    
-    # 模型对应的推荐尺寸
+
     MODEL_SIZES = {
         "stabilityai/stable-diffusion-xl-base-1.0": ["1024x1024", "1024x768", "768x1024"],
         "stabilityai/sdxl-turbo": ["1024x1024", "512x512"],
-        "stabilityai/stable-diffusion-2-1": ["768x768", "512x512"],
-        "runwayml/stable-diffusion-v1-5": ["512x512", "512x768", "768x512"],
-        "CompVis/stable-diffusion-v1-4": ["512x512", "256x256"],
+        "black-forest-labs/FLUX.1-schnell": ["1024x1024", "768x768"],
     }
-    
+
+    # Inference API 端点（非 OpenAI 兼容 router）
+    INFERENCE_BASE_URL = "https://api-inference.huggingface.co/models"
+
     def __init__(
         self,
         api_key: str,
@@ -64,9 +52,8 @@ class HuggingFaceImageGenerator(ImageGeneratorBase):
         **kwargs
     ):
         super().__init__(api_key, api_base, default_model, **kwargs)
-        # 使用 HuggingFace Router (OpenAI兼容接口)
-        self.base_url = "https://router.huggingface.co/v1"
-    
+        self.base_url = api_base or self.INFERENCE_BASE_URL
+
     async def generate(
         self,
         prompt: str,
@@ -78,84 +65,74 @@ class HuggingFaceImageGenerator(ImageGeneratorBase):
         model: Optional[str] = None,
         **kwargs
     ) -> ImageGenerationResult:
-        """
-        生成图片 - 使用 OpenAI 兼容接口
-        
-        Args:
-            prompt: 图片描述
-            negative_prompt: 负面提示词
-            size: 图片尺寸
-            quality: 图片质量
-            style: 风格提示词
-            n: 生成数量
-            model: 模型名称
-        """
-        from openai import AsyncOpenAI
-        
+        """生成图片（Inference API 直调，返回二进制图）"""
         model = model or self.default_model
-        
-        logger.info(f"HuggingFace image generation: model={model}, size={size}")
-        
-        # 解析尺寸
-        width, height = self.parse_size(size)
-        
-        # 构建提示词
-        full_prompt = prompt
-        if style:
-            full_prompt = f"{prompt}, {style} style"
-        
+        full_prompt = f"{prompt}, {style} style" if style else prompt
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {"inputs": full_prompt}
+
+        images = []
         try:
-            # 使用 OpenAI 兼容接口
-            client = AsyncOpenAI(
-                base_url=self.base_url,
-                api_key=self.api_key,
-                timeout=180.0,
-                max_retries=2,
-            )
-            
-            images = []
-            
-            # HF API 一次只能生成一张图片
-            for i in range(min(n, 4)):
-                try:
-                    response = await client.images.generate(
-                        model=model,
-                        prompt=full_prompt,
-                        size=size,
-                        quality=quality if quality != "hd" else "standard",
-                        n=1,
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                for i in range(min(n, 4)):
+                    response = await client.post(
+                        f"{self.base_url}/{model}",
+                        headers=headers,
+                        json=payload,
                     )
-                    
-                    if response.data and len(response.data) > 0:
-                        img_url = response.data[0].url
-                        if img_url:
-                            images.append(img_url)
-                            
-                except Exception as e:
-                    logger.warning(f"第 {i+1} 次尝试失败: {e}")
-                    continue
-            
+                    if response.status_code == 503:
+                        # 模型冷启动中，等待后重试一次
+                        logger.info(f"HF 模型 {model} 加载中，等待重试...")
+                        await asyncio.sleep(15)
+                        response = await client.post(
+                            f"{self.base_url}/{model}",
+                            headers=headers,
+                            json=payload,
+                        )
+
+                    if response.status_code != 200:
+                        logger.warning(f"HF 第 {i+1} 次生成失败: HTTP {response.status_code}: {response.text[:200]}")
+                        continue
+
+                    content_type = response.headers.get("content-type", "")
+                    if "image" in content_type:
+                        img_b64 = base64.b64encode(response.content).decode("utf-8")
+                        images.append(f"data:{content_type};base64,{img_b64}")
+                    else:
+                        # 部分模型返回 JSON（如 FLUX 输出 url/base64）
+                        try:
+                            data = response.json()
+                            if isinstance(data, dict) and data.get("url"):
+                                images.append(data["url"])
+                            elif isinstance(data, dict) and data.get("b64_json"):
+                                images.append(data["b64_json"])
+                        except Exception:
+                            img_b64 = base64.b64encode(response.content).decode("utf-8")
+                            images.append(img_b64)
+
             if images:
                 return ImageGenerationResult.ok(
                     images=images,
-                    model=model or self.default_model,
+                    model=model,
                     provider=self.provider_name,
-                    is_base64=False
+                    is_base64=True,
                 )
-            else:
-                return ImageGenerationResult.fail(
-                    f"未能生成图片，可能是因为模型 {model} 不支持图片生成或API调用失败",
-                    self.provider_name
-                )
-                
+            return ImageGenerationResult.fail(
+                f"未能生成图片：模型 {model} 可能不支持图片生成或 API 调用失败",
+                self.provider_name,
+            )
+        except httpx.TimeoutException:
+            return ImageGenerationResult.fail("请求超时", self.provider_name)
         except Exception as e:
-            logger.error(f"Hugging Face image generation error: {e}")
+            logger.error(f"Hugging Face image generation error: {e}", exc_info=True)
             return ImageGenerationResult.fail(str(e), self.provider_name)
-    
+
     def get_supported_sizes(self) -> List[str]:
-        """获取支持的尺寸"""
         return ["512x512", "768x768", "1024x1024", "1024x768", "768x1024"]
-    
+
     def get_supported_models(self) -> List[str]:
-        """获取支持的模型列表"""
         return self.SUPPORTED_MODELS
