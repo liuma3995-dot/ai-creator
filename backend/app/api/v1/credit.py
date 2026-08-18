@@ -1,10 +1,17 @@
 """
 积分和会员API路由
 """
-from fastapi import APIRouter, Depends, Query
+import hashlib
+import hmac
+import time
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
+from app.models.credit import RechargeOrder, MembershipOrder
 from app.models.user import User
 from app.schemas.common import success_response, PaginatedResponse
 from app.schemas.credit import (
@@ -21,8 +28,28 @@ from app.services.credit_service import (
 from app.utils.deps import get_current_user, get_admin_user
 
 router = APIRouter(tags=["积分和会员"])
+admin_router = APIRouter(tags=["积分会员-管理端"])
 
 
+def _verify_callback_signature(
+    order_no: str,
+    amount: str,
+    status: str,
+    transaction_id: str,
+    timestamp: Optional[str],
+    signature: Optional[str],
+) -> bool:
+    """网关回调 HMAC 签名校验（含 10 分钟时间戳防重放）"""
+    try:
+        ts = int(timestamp or 0)
+    except (TypeError, ValueError):
+        return False
+    if abs(int(time.time()) - ts) > 600:
+        return False
+    secret = settings.PAYMENT_CALLBACK_SECRET or ""
+    canonical = f"{order_no}:{amount}:{status}:{transaction_id}:{timestamp}"
+    expected = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, (signature or "").lower())
 # ==================== 积分相关 ====================
 
 @router.get("/balance")
@@ -101,9 +128,20 @@ async def get_recharge_orders(
 @router.post("/recharge/callback")
 async def recharge_payment_callback(
     callback_data: PaymentCallbackRequest,
+    x_callback_timestamp: Optional[str] = Header(None, alias="X-Callback-Timestamp"),
+    x_callback_sign: Optional[str] = Header(None, alias="X-Callback-Sign"),
     db: Session = Depends(get_db)
 ):
     """充值支付回调（由支付平台调用）"""
+    if not _verify_callback_signature(
+        callback_data.order_no,
+        str(callback_data.amount),
+        callback_data.status,
+        callback_data.transaction_id,
+        x_callback_timestamp,
+        x_callback_sign,
+    ):
+        raise HTTPException(status_code=403, detail="回调签名校验失败")
     success = RechargeService.process_payment_callback(
         db,
         callback_data.order_no,
@@ -149,9 +187,20 @@ async def get_membership_orders(
 @router.post("/membership/callback")
 async def membership_payment_callback(
     callback_data: PaymentCallbackRequest,
+    x_callback_timestamp: Optional[str] = Header(None, alias="X-Callback-Timestamp"),
+    x_callback_sign: Optional[str] = Header(None, alias="X-Callback-Sign"),
     db: Session = Depends(get_db)
 ):
     """会员支付回调（由支付平台调用）"""
+    if not _verify_callback_signature(
+        callback_data.order_no,
+        str(callback_data.amount),
+        callback_data.status,
+        callback_data.transaction_id,
+        x_callback_timestamp,
+        x_callback_sign,
+    ):
+        raise HTTPException(status_code=403, detail="回调签名校验失败")
     success = MembershipService.process_payment_callback(
         db,
         callback_data.order_no,
@@ -164,9 +213,24 @@ async def membership_payment_callback(
 @router.post("/payment/callback")
 async def unified_payment_callback(
     callback_data: UnifiedPaymentCallbackRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """统一支付回调（用于模拟支付成功）"""
+    # 仅限订单本人操作，防止越权把他人订单翻成已支付
+    if callback_data.order_type == 'recharge':
+        order = db.query(RechargeOrder).filter(
+            RechargeOrder.order_no == callback_data.order_no,
+            RechargeOrder.user_id == current_user.id,
+        ).first()
+    else:
+        order = db.query(MembershipOrder).filter(
+            MembershipOrder.order_no == callback_data.order_no,
+            MembershipOrder.user_id == current_user.id,
+        ).first()
+    if not order:
+        raise HTTPException(status_code=403, detail="无权操作该订单")
+
     import uuid
     transaction_id = str(uuid.uuid4())
     
@@ -216,7 +280,7 @@ async def get_membership_prices(db: Session = Depends(get_db)):
 
 # ==================== 管理员接口 ====================
 
-@router.post("/admin/prices/credits")
+@admin_router.post("/prices/credits")
 async def create_credit_price(
     price_data: CreditPriceCreate,
     current_user: User = Depends(get_admin_user),
@@ -227,7 +291,7 @@ async def create_credit_price(
     return success_response(data=CreditPriceResponse.from_orm(price))
 
 
-@router.put("/admin/prices/credits/{price_id}")
+@admin_router.put("/prices/credits/{price_id}")
 async def update_credit_price(
     price_id: int,
     price_data: CreditPriceCreate,
@@ -239,7 +303,7 @@ async def update_credit_price(
     return success_response(data=CreditPriceResponse.from_orm(price))
 
 
-@router.delete("/admin/prices/credits/{price_id}")
+@admin_router.delete("/prices/credits/{price_id}")
 async def delete_credit_price(
     price_id: int,
     current_user: User = Depends(get_admin_user),
@@ -250,7 +314,7 @@ async def delete_credit_price(
     return success_response(data={"success": success})
 
 
-@router.post("/admin/prices/membership")
+@admin_router.post("/prices/membership")
 async def create_membership_price(
     price_data: MembershipPriceCreate,
     current_user: User = Depends(get_admin_user),
@@ -261,7 +325,7 @@ async def create_membership_price(
     return success_response(data=MembershipPriceResponse.from_orm(price))
 
 
-@router.put("/admin/prices/membership/{price_id}")
+@admin_router.put("/prices/membership/{price_id}")
 async def update_membership_price(
     price_id: int,
     price_data: MembershipPriceCreate,
@@ -273,7 +337,7 @@ async def update_membership_price(
     return success_response(data=MembershipPriceResponse.from_orm(price))
 
 
-@router.delete("/admin/prices/membership/{price_id}")
+@admin_router.delete("/prices/membership/{price_id}")
 async def delete_membership_price(
     price_id: int,
     current_user: User = Depends(get_admin_user),

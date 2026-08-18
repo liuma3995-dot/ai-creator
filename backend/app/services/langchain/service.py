@@ -11,6 +11,7 @@ LangChain 统一服务入口
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
@@ -28,6 +29,16 @@ from .chat.factory import LangChainChatFactory
 from .tools import ToolExecutor, create_tool_from_plugin
 
 logger = logging.getLogger(__name__)
+
+# 推理模型（如 MiniMax-M3、DeepSeek-R1 等）可能把 <think>...</think> 思考过程混入正文
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def clean_model_content(content: str) -> str:
+    """清理模型输出：移除 <think>...</think> 推理块并去除首尾空白"""
+    if not content:
+        return content
+    return _THINK_BLOCK_RE.sub("", content).strip()
 
 
 @dataclass
@@ -183,7 +194,7 @@ class LangChainService:
             response = await self._chat_model.ainvoke(messages, config=config, **kwargs)
             
             return ChatResponse(
-                content=response.content if isinstance(response.content, str) else "",
+                content=clean_model_content(response.content) if isinstance(response.content, str) else "",
                 model=self.model,
                 finish_reason="stop"
             )
@@ -254,7 +265,7 @@ class LangChainService:
             if not response.tool_calls:
                 # 没有工具调用，返回最终响应
                 return ChatResponse(
-                    content=response.content if isinstance(response.content, str) else "",
+                    content=clean_model_content(response.content) if isinstance(response.content, str) else "",
                     model=self.model,
                     finish_reason="stop"
                 )
@@ -262,7 +273,7 @@ class LangChainService:
             # 如果不自动执行，返回工具调用请求
             if not auto_execute_tools:
                 return ChatResponse(
-                    content=response.content if isinstance(response.content, str) else "",
+                    content=clean_model_content(response.content) if isinstance(response.content, str) else "",
                     tool_calls=response.tool_calls,
                     model=self.model,
                     finish_reason="tool_calls"

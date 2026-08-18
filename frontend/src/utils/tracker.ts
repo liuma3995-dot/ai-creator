@@ -108,7 +108,8 @@ export function setupAutoClickTracker() {
 
         // 获取元素信息
         const tagName = target.tagName.toLowerCase()
-        const className = target.className || ''
+        const rawClassName = (target as any).className
+        const className = typeof rawClassName === 'string' ? rawClassName : String(rawClassName?.baseVal || '')
         const id = target.id || ''
 
         // 构建事件名称

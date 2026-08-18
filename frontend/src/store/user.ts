@@ -15,7 +15,7 @@ export const useUserStore = defineStore('user', () => {
     // 优先检查store中的token，如果没有则检查localStorage
     return !!token.value || !!localStorage.getItem('token')
   })
-  const isAdmin = computed(() => userInfo.value?.role === 'admin')
+  const isAdmin = computed(() => (userInfo.value?.role || '').toLowerCase() === 'admin')
 
   // 登录
   const login = async (username: string, password: string) => {
@@ -89,6 +89,10 @@ export const useUserStore = defineStore('user', () => {
     
     if (savedToken) {
       token.value = savedToken
+      // 有 token 时以服务器为准刷新用户信息，避免本地旧角色/会员/积分状态偏差
+      getUserInfo().catch(() => {
+        logout()
+      })
     }
     if (savedRefreshToken) {
       refreshToken.value = savedRefreshToken

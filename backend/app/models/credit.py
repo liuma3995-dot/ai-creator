@@ -89,6 +89,8 @@ class MembershipOrder(Base):
         comment="用户ID（FK→users.id）"
     )
 
+    price_id = Column(BigInteger, nullable=True, index=True, comment="关联会员套餐ID（下单时绑定，支付回调按此结算）")
+
     membership_type = Column(
         Enum(MembershipType),
         nullable=False,

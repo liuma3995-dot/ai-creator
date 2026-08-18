@@ -196,23 +196,23 @@ export const createCoupon = (data: {
   valid_from: string
   valid_until: string
 }) => {
-  return request.post<Coupon>('/v1/operation/coupons', data)
+  return request.post<Coupon>('/v1/admin/operation/coupons', data)
 }
 
 export const updateCoupon = (couponId: number, data: Partial<Coupon>) => {
-  return request.put<Coupon>(`/v1/operation/coupons/${couponId}`, data)
+  return request.put<Coupon>(`/v1/admin/operation/coupons/${couponId}`, data)
 }
 
 export const deleteCoupon = (couponId: number) => {
-  return request.delete(`/v1/operation/coupons/${couponId}`)
+  return request.delete(`/v1/admin/operation/coupons/${couponId}`)
 }
 
 export const issueCoupon = (couponId: number, userIds: number[]) => {
-  return request.post(`/v1/operation/coupons/${couponId}/issue`, { user_ids: userIds })
+  return request.post(`/v1/admin/operation/coupons/${couponId}/issue`, { user_ids: userIds })
 }
 
 export const voidCoupon = (couponId: number) => {
-  return request.post(`/v1/operation/coupons/${couponId}/void`)
+  return request.post(`/v1/admin/operation/coupons/${couponId}/void`)
 }
 
 export const receiveCoupon = (couponId: number) => {
@@ -257,18 +257,18 @@ export const getReferralStatistics = () => {
 }
 
 export const approveReferral = (recordId: number, rewardAmount?: number) => {
-  return request.post(`/v1/operation/referral/${recordId}/approve`, rewardAmount != null ? { reward_amount: rewardAmount } : {})
+  return request.post(`/v1/admin/operation/referral/${recordId}/approve`, rewardAmount != null ? { reward_amount: rewardAmount } : {})
 }
 
 export const approveReferralsBatch = (recordIds: number[], rewardAmount?: number) => {
-  return request.post('/v1/operation/referral/approve-batch', {
+  return request.post('/v1/admin/operation/referral/approve-batch', {
     record_ids: recordIds,
     reward_amount: rewardAmount,
   })
 }
 
 export const getReferralRule = () => {
-  return request.get<{ reward_type: string; credits_rate: number; register_credits: number; coupon_id: number | null; is_enabled: boolean }>('/v1/operation/referral/rule')
+  return request.get<{ reward_type: string; credits_rate: number; register_credits: number; coupon_id: number | null; is_enabled: boolean }>('/v1/admin/operation/referral/rule')
 }
 
 export const updateReferralRule = (data: {
@@ -278,7 +278,7 @@ export const updateReferralRule = (data: {
   coupon_id?: number | null
   is_enabled?: boolean
 }) => {
-  return request.put('/v1/operation/referral/rule', data)
+  return request.put('/v1/admin/operation/referral/rule', data)
 }
 
 // 数据统计
@@ -287,7 +287,7 @@ export const getOperationStatistics = (params?: {
   start_date?: string
   end_date?: string
 }) => {
-  return request.get<{ data: OperationStatistics }>('/v1/operation/statistics', { params })
+  return request.get<{ data: OperationStatistics }>('/v1/admin/operation/statistics', { params })
 }
 
 export const getDashboardStatistics = () => {
@@ -300,5 +300,5 @@ export const getDashboardStatistics = () => {
     total_revenue: number
     today_revenue: number
     active_users: number
-  } }>('/v1/operation/dashboard')
+  } }>('/v1/admin/operation/dashboard')
 }

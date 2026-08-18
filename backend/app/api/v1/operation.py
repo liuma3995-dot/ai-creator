@@ -27,22 +27,21 @@ from app.schemas.operation import (
     ReferralRecordResponse, ReferralRuleUpdate
 )
 from app.services.operation_service import OperationService
-from app.utils.deps import get_current_user
+from app.utils.deps import get_current_user, get_admin_user
 
 router = APIRouter(tags=["运营管理"])
+admin_router = APIRouter(tags=["运营管理-管理端"])
 
 
 # ==================== 活动管理 ====================
 
-@router.post("/activities")
+@admin_router.post("/activities")
 async def create_activity(
     activity: ActivityCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """创建运营活动（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
 
     service = OperationService(db)
     result = await service.create_activity(activity, current_user.id)
@@ -89,16 +88,14 @@ async def get_activity(
     return success_response(data=_enrich_activity(activity))
 
 
-@router.put("/activities/{activity_id}")
+@admin_router.put("/activities/{activity_id}")
 async def update_activity(
     activity_id: int,
     activity: ActivityUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """更新活动（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
 
     service = OperationService(db)
     result = await service.update_activity(activity_id, activity)
@@ -107,15 +104,13 @@ async def update_activity(
     return success_response(data=_enrich_activity(result))
 
 
-@router.delete("/activities/{activity_id}")
+@admin_router.delete("/activities/{activity_id}")
 async def delete_activity(
     activity_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """删除活动（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
     
     service = OperationService(db)
     success = await service.delete_activity(activity_id)
@@ -137,17 +132,15 @@ async def participate_activity(
     return success_response(data=result)
 
 
-@router.get("/activities/{activity_id}/participations")
+@admin_router.get("/activities/{activity_id}/participations")
 async def get_activity_participations(
     activity_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """获取活动参与记录（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
     
     service = OperationService(db)
     participations, total = await service.get_activity_participations(
@@ -166,15 +159,13 @@ async def get_activity_participations(
 
 # ==================== 优惠券管理 ====================
 
-@router.post("/coupons")
+@admin_router.post("/coupons")
 async def create_coupon(
     coupon: CouponCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """创建优惠券（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
     
     service = OperationService(db)
     result = await service.create_coupon(coupon)
@@ -221,16 +212,14 @@ async def get_coupon(
     return success_response(data=coupon)
 
 
-@router.put("/coupons/{coupon_id}")
+@admin_router.put("/coupons/{coupon_id}")
 async def update_coupon(
     coupon_id: int,
     coupon: CouponUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """更新优惠券（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
     
     service = OperationService(db)
     result = await service.update_coupon(coupon_id, coupon)
@@ -239,15 +228,13 @@ async def update_coupon(
     return success_response(data=result)
 
 
-@router.delete("/coupons/{coupon_id}")
+@admin_router.delete("/coupons/{coupon_id}")
 async def delete_coupon(
     coupon_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """删除优惠券（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
     
     service = OperationService(db)
     success = await service.delete_coupon(coupon_id)
@@ -269,32 +256,26 @@ async def receive_coupon(
     return success_response(data=result)
 
 
-@router.post("/coupons/{coupon_id}/issue")
+@admin_router.post("/coupons/{coupon_id}/issue")
 async def issue_coupon(
     coupon_id: int,
     issue: CouponIssue,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """发放优惠券给指定用户（管理员，支持批量）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
-
     service = OperationService(db)
     issued = await service.issue_coupon(coupon_id, issue.user_ids)
     return success_response(data={"issued": issued})
 
 
-@router.post("/coupons/{coupon_id}/void")
+@admin_router.post("/coupons/{coupon_id}/void")
 async def void_coupon(
     coupon_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """作废优惠券（管理员）：停用并作废所有未使用的用户券"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
-
     service = OperationService(db)
     result = await service.void_coupon(coupon_id)
     return success_response(data={"id": result.id, "is_active": result.is_active})
@@ -422,14 +403,12 @@ async def get_referral_statistics(
     return success_response(data=statistics)
 
 
-@router.get("/referral/rule")
+@admin_router.get("/referral/rule")
 async def get_referral_rule(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """获取平台返利规则（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
     service = OperationService(db)
     rule = await service.get_referral_rule()
     return success_response(data={
@@ -441,15 +420,13 @@ async def get_referral_rule(
     })
 
 
-@router.put("/referral/rule")
+@admin_router.put("/referral/rule")
 async def update_referral_rule(
     rule_data: ReferralRuleUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """更新平台返利规则（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
     service = OperationService(db)
     rule = await service.update_referral_rule(rule_data)
     return success_response(data={
@@ -461,15 +438,13 @@ async def update_referral_rule(
     })
 
 
-@router.post("/referral/approve-batch")
+@admin_router.post("/referral/approve-batch")
 async def approve_referrals_batch(
     approve: ReferralApproveBatch,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """批量审核通过推荐返利（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
 
     service = OperationService(db)
     settled = await service.approve_referrals_batch(
@@ -478,16 +453,14 @@ async def approve_referrals_batch(
     return success_response(data={"settled": settled})
 
 
-@router.post("/referral/{record_id}/approve")
+@admin_router.post("/referral/{record_id}/approve")
 async def approve_referral(
     record_id: int,
     approve: Optional[ReferralApprove] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """审核通过一条推荐返利（管理员）"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
 
     service = OperationService(db)
     reward_amount = approve.reward_amount if approve else None
@@ -501,31 +474,25 @@ async def approve_referral(
 
 # ==================== 运营统计 ====================
 
-@router.get("/statistics")
+@admin_router.get("/statistics")
 async def get_operation_statistics(
     query: StatisticsQuery = Depends(),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """获取运营统计（管理员）"""
-    from app.models.user import UserRole
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="需要管理员权限")
     
     service = OperationService(db)
     statistics = await service.get_operation_statistics(query)
     return success_response(data=statistics)
 
 
-@router.get("/dashboard")
+@admin_router.get("/dashboard")
 async def get_dashboard_statistics(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """获取仪表盘统计（管理员）"""
-    from app.models.user import UserRole
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="需要管理员权限")
 
     service = OperationService(db)
     statistics = await service.get_dashboard_statistics()

@@ -25,7 +25,10 @@ MultiPartParser.max_part_size = 50 * 1024 * 1024
 MultiPartParser.spool_max_size = 50 * 1024 * 1024
 
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import init_db, SessionLocal
+from app.core.security import decode_token
+from app.models.user import User
+from app.models.audit_log import AdminAuditLog
 from app.api.v1 import auth, writing, image, video, ppt, creations, publish, models as models_api, credit, operation, oauth, ai, plugins, templates, hotspot, title, image_stock, platform_converter, viral_analyzer, admin_users, traffic, ppt_templates, model_usage
 
 # 配置日志
@@ -52,6 +55,47 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def admin_audit_middleware(request: Request, call_next):
+    """管理员操作审计：自动记录 /api/v1/admin/* 请求（操作人、方法、路径、状态、IP）"""
+    response = await call_next(request)
+    path = request.url.path
+    if not path.startswith(settings.API_V1_PREFIX + "/admin"):
+        return response
+
+    from app.core.database import SessionLocal as AuditSessionLocal
+    db = AuditSessionLocal()
+    try:
+        user_id = None
+        username = None
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            try:
+                payload = decode_token(auth[7:])
+                uid = payload.get("sub")
+                if uid is not None:
+                    user_id = int(uid)
+                    user = db.query(User).filter(User.id == user_id).first()
+                    username = user.username if user else None
+            except Exception:
+                user_id = None
+        db.add(AdminAuditLog(
+            user_id=user_id,
+            username=username,
+            method=request.method,
+            path=path,
+            status_code=response.status_code,
+            detail=None,
+            client_ip=request.client.host if request.client else None,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+    return response
 
 
 # --------------------------------------------------------------------------
@@ -334,6 +378,18 @@ app.include_router(
 )
 
 # 管理员接口
+app.include_router(
+    credit.admin_router,
+    prefix=f"{settings.API_V1_PREFIX}/admin/credit",
+    tags=["积分与会员-管理端"]
+)
+
+app.include_router(
+    operation.admin_router,
+    prefix=f"{settings.API_V1_PREFIX}/admin/operation",
+    tags=["运营管理-管理端"]
+)
+
 app.include_router(
     admin_users.router,
     prefix=f"{settings.API_V1_PREFIX}/admin/users",

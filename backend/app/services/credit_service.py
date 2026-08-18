@@ -82,7 +82,8 @@ class CreditService:
         Returns:
             是否成功
         """
-        user = db.query(User).filter(User.id == user_id).first()
+        # 行锁防止并发扣费丢更新（D8：并发下余额/流水账实不符）
+        user = db.query(User).filter(User.id == user_id).with_for_update().first()
         if not user:
             raise BusinessException("用户不存在")
         
@@ -150,7 +151,8 @@ class CreditService:
         Returns:
             交易记录
         """
-        user = db.query(User).filter(User.id == user_id).first()
+        # 行锁防止并发加积分丢更新
+        user = db.query(User).filter(User.id == user_id).with_for_update().first()
         if not user:
             raise BusinessException("用户不存在")
         
@@ -173,6 +175,34 @@ class CreditService:
         db.refresh(transaction)
         
         return transaction
+
+    @staticmethod
+    def refund_creation_credits(
+        db: Session,
+        creation_id: int,
+        description: str,
+    ) -> bool:
+        """按创作记录退还其已扣积分（生成失败退款，D5）。
+
+        无扣费记录（如 cookie 免费模式）时返回 False 不产生退款。
+        """
+        tx = db.query(CreditTransaction).filter(
+            CreditTransaction.related_id == creation_id,
+            CreditTransaction.related_type == "creation",
+            CreditTransaction.transaction_type == TransactionType.CONSUME,
+        ).first()
+        if not tx:
+            return False
+        CreditService.add_credits(
+            db=db,
+            user_id=tx.user_id,
+            amount=abs(tx.amount),
+            transaction_type=TransactionType.REFUND,
+            description=description,
+            related_id=creation_id,
+            related_type="creation",
+        )
+        return True
     
     @staticmethod
     def get_transactions(
@@ -470,6 +500,7 @@ class MembershipService:
             order_no=order_no,
             user_id=user_id,
             membership_type=price.membership_type,
+            price_id=price.id,
             amount=final_amount,
             original_amount=price.original_amount,
             discount_amount=(price.original_amount or price.amount) - final_amount,
@@ -521,10 +552,18 @@ class MembershipService:
         
         if status == "paid":
             # 获取价格配置以获取有效期
-            price = db.query(MembershipPrice).filter(
-                MembershipPrice.membership_type == order.membership_type,
-                MembershipPrice.is_active == True
-            ).first()
+            # 优先按下单时绑定的套餐结算；历史订单未绑定则按会员类型兜底
+            price = None
+            if order.price_id:
+                price = db.query(MembershipPrice).filter(
+                    MembershipPrice.id == order.price_id,
+                    MembershipPrice.is_active == True
+                ).first()
+            if not price:
+                price = db.query(MembershipPrice).filter(
+                    MembershipPrice.membership_type == order.membership_type,
+                    MembershipPrice.is_active == True
+                ).first()
             
             if not price:
                 raise BusinessException("会员套餐配置不存在")
@@ -656,10 +695,11 @@ class MembershipService:
         return MembershipStatisticsResponse(
             is_member=is_member,
             member_expired_at=user.member_expired_at if is_member else None,
-            total_purchase_amount=purchase_stats.total_amount or Decimal(0),
-            total_purchase_count=purchase_stats.count or 0,
-            last_purchase_at=last_order.paid_at if last_order else None,
-            last_membership_type=last_order.membership_type if last_order else None
+            total_orders=purchase_stats.count or 0,
+            total_amount=purchase_stats.total_amount or Decimal(0),
+            days_remaining=max(0, (user.member_expired_at - datetime.now()).days) if is_member and user.member_expired_at else 0,
+            active_membership=is_member,
+            expired_at=user.member_expired_at if is_member else None,
         )
 
 

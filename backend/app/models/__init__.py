@@ -22,12 +22,14 @@ from app.models.plugin import (
 )
 from app.models.template import ArticleTemplate
 from app.models.traffic import PageView, UserEvent, DailyStats
+from app.models.audit_log import AdminAuditLog
 
 __all__ = [
     # User models
     "User",
     "UserRole",
     "UserStatus",
+    "AdminAuditLog",
     
     # AI Model models
     "AIModel",

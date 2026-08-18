@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _refund_creation(db, creation, description: str):
+    """生成失败时退还该创作已扣的积分（无扣费记录则无操作）"""
+    from app.services.credit_service import CreditService
+    CreditService.refund_creation_credits(db, creation.id, description)
+
+
 class PPTGenerateRequest(BaseModel):
     topic: str
     model_id: Optional[int] = None
@@ -243,6 +249,7 @@ async def process_ppt_generation(db: Session, creation_id: int, request_data: di
         try:
             creation = db.query(Creation).filter(Creation.id == creation_id).first()
             if creation:
+                _refund_creation(db, creation, "PPT生成失败退款")
                 creation.status = "failed"
                 creation.error_message = str(e)
                 creation.output_data = {"error": str(e)}
@@ -280,6 +287,7 @@ async def generate_ppt(
             status="processing"
         )
         db.add(creation)
+        db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
         # 仅在API Key模式下扣除积分
         if not request.platform:

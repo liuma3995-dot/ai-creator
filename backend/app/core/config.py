@@ -72,6 +72,10 @@ class Settings(BaseSettings):
         description="JWT密钥"
     )
     ALGORITHM: str = "HS256"
+    PAYMENT_CALLBACK_SECRET: str = Field(
+        default="change-me-payment-callback-secret",
+        description="支付回调签名密钥（网关回调校验用）"
+    )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120  # 2小时
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # 7天
     

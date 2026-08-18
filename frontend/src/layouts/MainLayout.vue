@@ -124,10 +124,6 @@
                   <el-icon><Setting /></el-icon>
                   个人设置
                 </el-dropdown-item>
-                <el-dropdown-item command="plugins">
-                  <el-icon><Connection /></el-icon>
-                  我的插件
-                </el-dropdown-item>
                 <el-dropdown-item divided command="logout">
                   <el-icon><SwitchButton /></el-icon>
                   退出登录
@@ -237,14 +233,10 @@
             <el-menu-item index="/admin/model-usage">调用监控</el-menu-item>
           </el-sub-menu>
 
-          <el-menu-item-group>
+            <el-menu-item-group>
             <el-menu-item index="/settings">
               <el-icon><Setting /></el-icon>
               个人设置
-            </el-menu-item>
-            <el-menu-item index="/plugins/my-plugins">
-              <el-icon><Connection /></el-icon>
-              我的插件
             </el-menu-item>
           </el-menu-item-group>
         </template>
@@ -331,7 +323,6 @@ const activeMenu = computed(() => {
   if (path.startsWith('/operation')) return path
   if (path.startsWith('/admin')) return path
   if (path.startsWith('/settings')) return path
-  if (path.startsWith('/plugins')) return path
   return ''
 })
 
@@ -360,9 +351,6 @@ const handleCommand = async (command: string) => {
   switch (command) {
     case 'settings':
       router.push('/settings')
-      break
-    case 'plugins':
-      router.push('/plugins/my-plugins')
       break
     case 'logout':
       try {
@@ -689,6 +677,18 @@ const handleCommand = async (command: string) => {
       padding: 0 12px;
       font-size: 14px;
     }
+  }
+}
+
+@media (max-width: 1400px) {
+  /* 抽屉模式：横向导航放不下时整体切换为汉堡菜单 + 抽屉，
+     避免出现横向导航被 overflow 裁掉右侧菜单项的情况 */
+  .mobile-menu-btn {
+    display: inline-flex;
+  }
+
+  .nav-wrap {
+    display: none;
   }
 }
 

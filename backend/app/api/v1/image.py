@@ -22,6 +22,12 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+def _refund_creation(db, creation, description: str):
+    """生成失败时退还该创作已扣的积分（无扣费记录则无操作）"""
+    from app.services.credit_service import CreditService
+    CreditService.refund_creation_credits(db, creation.id, description)
+
 # 图片存储目录
 IMAGE_STORAGE_DIR = "uploads/images"
 
@@ -241,6 +247,7 @@ async def process_image_generation(db: Session, creation_id: int, request_data: 
         try:
             creation = db.query(Creation).filter(Creation.id == creation_id).first()
             if creation:
+                _refund_creation(db, creation, "图片生成失败退款")
                 creation.status = "failed"
                 creation.error_message = str(e)
                 creation.output_data = {"error": str(e)}
@@ -268,6 +275,7 @@ async def process_image_variation(db: Session, creation_id: int, request_data: d
     except Exception as e:
         creation = db.query(Creation).filter(Creation.id == creation_id).first()
         if creation:
+            _refund_creation(db, creation, "图片变体生成失败退款")
             creation.status = "failed"
             creation.output_data = {"error": str(e)}
             db.commit()
@@ -289,6 +297,7 @@ async def process_image_edit(db: Session, creation_id: int, request_data: dict):
     except Exception as e:
         creation = db.query(Creation).filter(Creation.id == creation_id).first()
         if creation:
+            _refund_creation(db, creation, "图片编辑失败退款")
             creation.status = "failed"
             creation.output_data = {"error": str(e)}
             db.commit()
@@ -310,6 +319,7 @@ async def process_image_upscale(db: Session, creation_id: int, request_data: dic
     except Exception as e:
         creation = db.query(Creation).filter(Creation.id == creation_id).first()
         if creation:
+            _refund_creation(db, creation, "图片放大失败退款")
             creation.status = "failed"
             creation.output_data = {"error": str(e)}
             db.commit()
@@ -352,6 +362,7 @@ async def generate_image(
             status="processing"
         )
         db.add(creation)
+        db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
         # 扣除积分
         current_user.credits -= required_credits
@@ -421,6 +432,7 @@ async def create_image_variation(
             status="processing"
         )
         db.add(creation)
+        db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
         current_user.credits -= required_credits
         transaction = CreditTransaction(
@@ -488,6 +500,7 @@ async def edit_image(
             status="processing"
         )
         db.add(creation)
+        db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
         current_user.credits -= required_credits
         transaction = CreditTransaction(
@@ -554,6 +567,7 @@ async def upscale_image(
             status="processing"
         )
         db.add(creation)
+        db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
         current_user.credits -= required_credits
         transaction = CreditTransaction(

@@ -83,11 +83,11 @@ class TestActivityAPI:
     """活动接口测试"""
 
     def test_create_activity_requires_admin(self, client, auth_headers):
-        r = client.post("/api/v1/operation/activities", json=_activity_payload(), headers=auth_headers)
+        r = client.post("/api/v1/admin/operation/activities", json=_activity_payload(), headers=auth_headers)
         assert r.status_code == 403
 
     def test_create_activity_as_admin(self, client, admin_headers):
-        r = client.post("/api/v1/operation/activities", json=_activity_payload(), headers=admin_headers)
+        r = client.post("/api/v1/admin/operation/activities", json=_activity_payload(), headers=admin_headers)
         assert r.status_code == 200
         body = r.json()
         assert body["code"] == 200
@@ -95,7 +95,7 @@ class TestActivityAPI:
         assert body["data"]["reward_amount"] == 20
 
     def test_create_activity_anonymous(self, client):
-        r = client.post("/api/v1/operation/activities", json=_activity_payload())
+        r = client.post("/api/v1/admin/operation/activities", json=_activity_payload())
         assert r.status_code in (401, 403)
 
     def test_get_activities_list(self, client, auth_headers):
@@ -117,7 +117,7 @@ class TestActivityAPI:
     def test_update_activity_requires_admin(self, client, db_session, auth_headers):
         activity = _make_activity(db_session)
         r = client.put(
-            f"/api/v1/operation/activities/{activity.id}",
+            f"/api/v1/admin/operation/activities/{activity.id}",
             json={"title": "普通用户改"},
             headers=auth_headers,
         )
@@ -126,7 +126,7 @@ class TestActivityAPI:
     def test_update_activity_as_admin(self, client, db_session, admin_headers):
         activity = _make_activity(db_session)
         r = client.put(
-            f"/api/v1/operation/activities/{activity.id}",
+            f"/api/v1/admin/operation/activities/{activity.id}",
             json={"title": "管理员改", "reward_amount": 66},
             headers=admin_headers,
         )
@@ -136,7 +136,7 @@ class TestActivityAPI:
 
     def test_update_activity_not_found(self, client, admin_headers):
         r = client.put(
-            "/api/v1/operation/activities/99999",
+            "/api/v1/admin/operation/activities/99999",
             json={"title": "不存在"},
             headers=admin_headers,
         )
@@ -144,12 +144,12 @@ class TestActivityAPI:
 
     def test_delete_activity_as_admin(self, client, db_session, admin_headers):
         activity = _make_activity(db_session)
-        r = client.delete(f"/api/v1/operation/activities/{activity.id}", headers=admin_headers)
+        r = client.delete(f"/api/v1/admin/operation/activities/{activity.id}", headers=admin_headers)
         assert r.status_code == 200
         assert db_session.query(Activity).filter(Activity.id == activity.id).first() is None
 
     def test_delete_activity_not_found(self, client, admin_headers):
-        r = client.delete("/api/v1/operation/activities/99999", headers=admin_headers)
+        r = client.delete("/api/v1/admin/operation/activities/99999", headers=admin_headers)
         assert r.status_code == 404
 
     def test_participate_activity_twice(self, client, db_session, auth_headers):
@@ -184,18 +184,18 @@ class TestCouponAPI:
     """优惠券接口测试"""
 
     def test_create_coupon_requires_admin(self, client, auth_headers):
-        r = client.post("/api/v1/operation/coupons", json=_coupon_payload(), headers=auth_headers)
+        r = client.post("/api/v1/admin/operation/coupons", json=_coupon_payload(), headers=auth_headers)
         assert r.status_code == 403
 
     def test_create_coupon_as_admin(self, client, admin_headers):
-        r = client.post("/api/v1/operation/coupons", json=_coupon_payload(), headers=admin_headers)
+        r = client.post("/api/v1/admin/operation/coupons", json=_coupon_payload(), headers=admin_headers)
         assert r.status_code == 200
         assert r.json()["data"]["code"] == "API100"
 
     def test_create_coupon_duplicate_code(self, client, admin_headers):
         payload = _coupon_payload()
-        assert client.post("/api/v1/operation/coupons", json=payload, headers=admin_headers).status_code == 200
-        duplicate = client.post("/api/v1/operation/coupons", json=payload, headers=admin_headers)
+        assert client.post("/api/v1/admin/operation/coupons", json=payload, headers=admin_headers).status_code == 200
+        duplicate = client.post("/api/v1/admin/operation/coupons", json=payload, headers=admin_headers)
         assert duplicate.status_code == 400
 
     def test_get_coupons_list(self, client, auth_headers):
@@ -360,7 +360,7 @@ class TestCouponAPI:
 
         coupon = _make_coupon(db_session, code="ISSUE10")
         r = client.post(
-            f"/api/v1/operation/coupons/{coupon.id}/issue",
+            f"/api/v1/admin/operation/coupons/{coupon.id}/issue",
             json={"user_ids": [test_user.id]},
             headers=admin_headers,
         )
@@ -369,7 +369,7 @@ class TestCouponAPI:
 
         # 重复发放跳过
         r2 = client.post(
-            f"/api/v1/operation/coupons/{coupon.id}/issue",
+            f"/api/v1/admin/operation/coupons/{coupon.id}/issue",
             json={"user_ids": [test_user.id]},
             headers=admin_headers,
         )
@@ -382,7 +382,7 @@ class TestCouponAPI:
     def test_issue_coupon_requires_admin(self, client, db_session, auth_headers, test_user):
         coupon = _make_coupon(db_session, code="ISSUE11")
         r = client.post(
-            f"/api/v1/operation/coupons/{coupon.id}/issue",
+            f"/api/v1/admin/operation/coupons/{coupon.id}/issue",
             json={"user_ids": [test_user.id]},
             headers=auth_headers,
         )
@@ -390,7 +390,7 @@ class TestCouponAPI:
 
     def test_issue_coupon_not_found(self, client, admin_headers):
         r = client.post(
-            "/api/v1/operation/coupons/99999/issue",
+            "/api/v1/admin/operation/coupons/99999/issue",
             json={"user_ids": [1]},
             headers=admin_headers,
         )
@@ -447,7 +447,7 @@ class TestCouponAPI:
             f"/api/v1/operation/coupons/{coupon.id}/receive", headers=auth_headers
         ).status_code == 200
 
-        r = client.post(f"/api/v1/operation/coupons/{coupon.id}/void", headers=admin_headers)
+        r = client.post(f"/api/v1/admin/operation/coupons/{coupon.id}/void", headers=admin_headers)
         assert r.status_code == 200
         assert r.json()["data"]["is_active"] is False
 
@@ -458,11 +458,11 @@ class TestCouponAPI:
 
     def test_void_coupon_requires_admin(self, client, db_session, auth_headers):
         coupon = _make_coupon(db_session, code="VOID11")
-        r = client.post(f"/api/v1/operation/coupons/{coupon.id}/void", headers=auth_headers)
+        r = client.post(f"/api/v1/admin/operation/coupons/{coupon.id}/void", headers=auth_headers)
         assert r.status_code == 403
 
     def test_void_coupon_not_found(self, client, admin_headers):
-        r = client.post("/api/v1/operation/coupons/99999/void", headers=admin_headers)
+        r = client.post("/api/v1/admin/operation/coupons/99999/void", headers=admin_headers)
         assert r.status_code == 404
 
 
@@ -555,7 +555,7 @@ class TestReferralAPI:
         before = db_session.query(User).filter(User.id == test_user.id).first().credits
 
         r = client.post(
-            f"/api/v1/operation/referral/{record.id}/approve",
+            f"/api/v1/admin/operation/referral/{record.id}/approve",
             json={},
             headers=admin_headers,
         )
@@ -587,7 +587,7 @@ class TestReferralAPI:
         record = ReferralService.process_referral(db_session, referee.id, code)
 
         r = client.post(
-            f"/api/v1/operation/referral/{record.id}/approve",
+            f"/api/v1/admin/operation/referral/{record.id}/approve",
             json={},
             headers=auth_headers,
         )
@@ -615,7 +615,7 @@ class TestReferralAPI:
             ids.append(record.id)
 
         r = client.post(
-            "/api/v1/operation/referral/approve-batch",
+            "/api/v1/admin/operation/referral/approve-batch",
             json={"record_ids": ids},
             headers=admin_headers,
         )
@@ -624,7 +624,7 @@ class TestReferralAPI:
 
         # 再次批量结算，全部跳过
         r2 = client.post(
-            "/api/v1/operation/referral/approve-batch",
+            "/api/v1/admin/operation/referral/approve-batch",
             json={"record_ids": ids},
             headers=admin_headers,
         )
@@ -632,7 +632,7 @@ class TestReferralAPI:
 
     def test_approve_referral_not_found(self, client, admin_headers):
         r = client.post(
-            "/api/v1/operation/referral/99999/approve",
+            "/api/v1/admin/operation/referral/99999/approve",
             json={},
             headers=admin_headers,
         )
@@ -643,12 +643,12 @@ class TestStatisticsAPI:
     """运营统计接口测试"""
 
     def test_statistics_requires_admin(self, client, auth_headers):
-        r = client.get("/api/v1/operation/statistics", headers=auth_headers)
+        r = client.get("/api/v1/admin/operation/statistics", headers=auth_headers)
         assert r.status_code == 403
 
     def test_statistics_as_admin(self, client, admin_headers, db_session):
         from app.models.user import User
-        r = client.get("/api/v1/operation/statistics", headers=admin_headers)
+        r = client.get("/api/v1/admin/operation/statistics", headers=admin_headers)
         assert r.status_code == 200
         data = r.json()["data"]
         # 启动时会初始化种子管理员，按库内实际用户数断言
@@ -656,12 +656,12 @@ class TestStatisticsAPI:
         assert data["recharge_amount"] == 0.0
 
     def test_dashboard_requires_admin(self, client, auth_headers):
-        r = client.get("/api/v1/operation/dashboard", headers=auth_headers)
+        r = client.get("/api/v1/admin/operation/dashboard", headers=auth_headers)
         assert r.status_code == 403
 
     def test_dashboard_as_admin(self, client, admin_headers, db_session):
         from app.models.user import User
-        r = client.get("/api/v1/operation/dashboard", headers=admin_headers)
+        r = client.get("/api/v1/admin/operation/dashboard", headers=admin_headers)
         assert r.status_code == 200
         data = r.json()["data"]
         assert data["total_users"] == db_session.query(User).count()

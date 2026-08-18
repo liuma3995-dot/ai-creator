@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _refund_creation(db, creation, description: str):
+    """生成失败时退还该创作已扣的积分（无扣费记录则无操作）"""
+    from app.services.credit_service import CreditService
+    CreditService.refund_creation_credits(db, creation.id, description)
+
+
 class VideoGenerateRequest(BaseModel):
     """视频生成请求"""
     prompt: str
@@ -220,6 +226,7 @@ async def process_video_generation(db: Session, creation_id: int, request_data: 
         try:
             creation = db.query(Creation).filter(Creation.id == creation_id).first()
             if creation:
+                _refund_creation(db, creation, "视频生成失败退款")
                 creation.status = "failed"
                 creation.error_message = str(e)
                 creation.output_data = {"error": str(e)}
@@ -274,6 +281,7 @@ async def process_text_to_video(db: Session, creation_id: int, request_data: dic
         try:
             creation = db.query(Creation).filter(Creation.id == creation_id).first()
             if creation:
+                _refund_creation(db, creation, "文本转视频失败退款")
                 creation.status = "failed"
                 creation.error_message = str(e)
                 creation.output_data = {"error": str(e)}
@@ -332,6 +340,7 @@ async def process_image_to_video(db: Session, creation_id: int, request_data: di
         try:
             creation = db.query(Creation).filter(Creation.id == creation_id).first()
             if creation:
+                _refund_creation(db, creation, "图片转视频失败退款")
                 creation.status = "failed"
                 creation.error_message = str(e)
                 creation.output_data = {"error": str(e)}
@@ -377,6 +386,7 @@ async def generate_video(
             status="processing"
         )
         db.add(creation)
+        db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
         # 仅在API Key模式下扣除积分
         if not request.platform:
@@ -472,6 +482,7 @@ async def text_to_video(
             task_id=task_id
         )
         db.add(creation)
+        db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
         current_user.credits -= required_credits
         transaction = CreditTransaction(
@@ -555,6 +566,7 @@ async def image_to_video(
             task_id=task_id
         )
         db.add(creation)
+        db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
         current_user.credits -= required_credits
         transaction = CreditTransaction(

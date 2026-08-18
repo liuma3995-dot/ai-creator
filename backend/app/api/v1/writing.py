@@ -251,6 +251,15 @@ async def generate_content(
         return creation
         
     except HTTPException:
+        # 扣费成功后的业务失败（如模型不存在 404）也退还积分（D6）
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="AI写作失败退款"
+            )
         raise
     except Exception as e:
         logger.error(f"Content generation failed: {e}", exc_info=True)
@@ -489,6 +498,15 @@ async def regenerate_content(
         return creation
         
     except HTTPException:
+        # 扣费成功后的业务失败（如模型不存在 404）也退还积分（D6）
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="AI写作失败退款"
+            )
         raise
     except Exception as e:
         # 生成失败，退还积分
@@ -596,6 +614,15 @@ async def optimize_content(
         return creation
 
     except HTTPException:
+        # 扣费成功后的业务失败（如模型不存在 404）也退还积分（D6）
+        if not current_user.is_member:
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="AI写作失败退款"
+            )
         raise
     except ValueError as e:
         # 不支持的优化类型等业务错误，退还积分

@@ -81,6 +81,7 @@ class MembershipOrderResponse(BaseModel):
     id: int
     order_no: str
     membership_type: str
+    price_id: Optional[int] = None
     amount: Decimal
     original_amount: Optional[Decimal] = None
     discount_amount: Decimal
@@ -210,4 +211,6 @@ class MembershipStatisticsResponse(BaseModel):
     member_expired_at: Optional[datetime] = Field(description="会员到期时间")
     total_orders: int = Field(description="总订单数")
     total_amount: Decimal = Field(description="总消费金额")
-    days_remaining: Optional[int] = Field(description="剩余天数")
+    days_remaining: int = Field(description="剩余天数")
+    active_membership: bool = Field(description="是否会员（前端兼容）")
+    expired_at: Optional[datetime] = Field(description="会员到期时间（前端兼容）")

@@ -50,24 +50,6 @@
               </el-alert>
             </el-card>
 
-            <el-card shadow="never" class="side-card plugin-card">
-              <template #header>
-                <div class="plugin-header">
-                  <span>创作插件</span>
-                  <el-button link type="primary" size="small" @click="router.push('/plugins/market')">管理插件</el-button>
-                </div>
-              </template>
-              <div class="plugin-selector-wrapper">
-                <PluginSelector v-model="selectedPlugins" :tool-type="toolType" @change="onPluginSelectionChange" />
-                <span class="plugin-hint">
-                  {{ selectedPlugins.length > 0 ? `已选择 ${selectedPlugins.length} 个插件` : '启用插件后可补充实时信息与外部能力' }}
-                </span>
-              </div>
-              <el-alert v-if="selectedPlugins.length > 0" type="success" :closable="false" class="plugin-alert">
-                <p>生成过程中，AI 会按需自动调用已启用插件。</p>
-              </el-alert>
-            </el-card>
-
             <div class="tips-card">
               <h4>创作建议</h4>
               <ul>
@@ -181,7 +163,6 @@ import { generateContent, optimizeContent, regenerateContent } from '@/api/writi
 import { getAIModels } from '@/api/models'
 import { getCreation } from '@/api/creations'
 import { analyzeContent, imitateContent } from '@/api/viralAnalyzer'
-import PluginSelector from '@/components/PluginSelector.vue'
 import DynamicToolForm from '@/components/writing/DynamicToolForm.vue'
 import TitleOptimizer from '@/components/title/TitleOptimizer.vue'
 import TitleGenerator from '@/components/title/TitleGenerator.vue'
@@ -290,7 +271,6 @@ const generating = ref(false)
 const optimizing = ref(false)
 const showOptimizeDialog = ref(false)
 const optimizeTypes = ref<string[]>([])
-const selectedPlugins = ref<string[]>([])
 
 // 标题助手相关
 const showTitleDialog = ref(false)
@@ -306,10 +286,6 @@ const coverImage = ref<ImageItem | null>(null)
 const currentTitle = computed(() => {
   return formData.value.title || currentCreation.value?.title || ''
 })
-
-const onPluginSelectionChange = (plugins: string[]) => {
-  console.log('Selected plugins:', plugins)
-}
 
 const contentStats = computed(() => {
   const text = markdownContent.value.replace(/[#*`\[\]()_~>-]/g, '').trim()
@@ -380,7 +356,7 @@ const handleGenerate = async () => {
       } as Creation
     } else {
       // 其他工具使用通用写作 API
-      res = await generateContent({ tool_type: toolType.value, params, ai_model_id: selectedModel.value, enabled_plugins: selectedPlugins.value.length > 0 ? selectedPlugins.value : undefined })
+      res = await generateContent({ tool_type: toolType.value, params, ai_model_id: selectedModel.value })
     }
     
     currentCreation.value = res
@@ -634,7 +610,6 @@ onMounted(async () => {
 
 .card-header,
 .header-left,
-.plugin-header,
 .preview-header,
 .preview-actions {
   display: flex;
@@ -667,22 +642,6 @@ onMounted(async () => {
   margin-top: 18px;
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(239, 246, 255, 0.82));
-}
-
-.plugin-selector-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.plugin-hint {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #64748b;
-}
-
-.plugin-alert {
-  margin-top: 12px;
 }
 
 .tips-card {

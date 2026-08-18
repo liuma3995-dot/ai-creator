@@ -87,6 +87,8 @@ class OpenAIService(AIServiceBase):
                         else:
                             content = ""
                     
+                    # 推理模型可能把 <think>...</think> 思考过程混入正文，统一移除
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
                     return content
                     
             except httpx.HTTPStatusError as e:

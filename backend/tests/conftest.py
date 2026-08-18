@@ -223,6 +223,30 @@ def auth_headers(client, test_user):
 
 
 @pytest.fixture
+def second_user_headers(client, db_session):
+    """第二个普通用户的认证头（用于越权/越权测试）"""
+    from app.core.security import get_password_hash
+    from app.models.user import UserStatus
+
+    user = User(
+        username="seconduser",
+        email="second@example.com",
+        password_hash=get_password_hash("testpass123"),
+        status=UserStatus.ACTIVE,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": user.username, "password": "testpass123"},
+    )
+    assert response.status_code == 200
+    token = response.json()["data"]["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
 def admin_headers(client, admin_user):
     """获取管理员认证头"""
     response = client.post(

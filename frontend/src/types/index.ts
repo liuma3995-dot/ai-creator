@@ -122,7 +122,6 @@ export interface GenerateContentParams {
   tool_type: string
   params: Record<string, any>
   ai_model_id?: number
-  enabled_plugins?: string[]
 }
 
 export interface CreationVersion {

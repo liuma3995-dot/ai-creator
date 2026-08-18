@@ -125,18 +125,6 @@ const routes: RouteRecordRaw[] = [
                 meta: {requiresAuth: true},
             },
             {
-                path: 'plugins/market',
-                name: 'PluginMarket',
-                component: () => import('@/views/plugins/Market.vue'),
-                meta: {requiresAuth: true},
-            },
-            {
-                path: 'plugins/my-plugins',
-                name: 'MyPlugins',
-                component: () => import('@/views/plugins/MyPlugins.vue'),
-                meta: {requiresAuth: true},
-            },
-            {
                 path: 'operation/activities',
                 name: 'ActivityManagement',
                 component: () => import('@/views/operation/ActivityManagement.vue'),
