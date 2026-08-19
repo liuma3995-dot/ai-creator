@@ -28,6 +28,25 @@ def _refund_creation(db, creation, description: str):
     from app.services.credit_service import CreditService
     CreditService.refund_creation_credits(db, creation.id, description)
 
+
+def _consume_credits(db, user_id: int, amount: int, description: str, creation_id: int):
+    """统一消费入口：会员不扣积分，非会员延迟提交（随业务记录一起 commit）"""
+    from app.core.exceptions import BusinessException
+    from app.services.credit_service import CreditService
+    try:
+        CreditService.check_and_consume_credits(
+            db=db,
+            user_id=user_id,
+            amount=amount,
+            description=description,
+            related_id=creation_id,
+            related_type="creation",
+            commit=False,
+        )
+    except BusinessException as e:
+        db.rollback()
+        raise HTTPException(status_code=402, detail=e.detail)
+
 # 图片存储目录
 IMAGE_STORAGE_DIR = "uploads/images"
 
@@ -337,10 +356,6 @@ async def generate_image(
         # 计算所需积分（每张图片10积分）
         required_credits = request.num_images * 10
         
-        # 检查积分余额
-        if current_user.credits < required_credits:
-            raise HTTPException(status_code=402, detail="积分不足")
-        
         # 生成任务ID
         task_id = f"img_{uuid.uuid4().hex[:16]}"
         
@@ -364,19 +379,14 @@ async def generate_image(
         db.add(creation)
         db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
-        # 扣除积分
-        current_user.credits -= required_credits
-        transaction = CreditTransaction(
-            user_id=current_user.id,
-            transaction_type=TransactionType.CONSUME,
-            amount=-required_credits,
-            balance_before=current_user.credits + required_credits,
-            balance_after=current_user.credits,
-            description=f"图片生成: {request.num_images}张",
-            related_id=creation.id,
-            related_type="creation"
+        # 扣除积分（会员不扣）
+        _consume_credits(
+            db,
+            current_user.id,
+            required_credits,
+            f"图片生成: {request.num_images}张",
+            creation.id,
         )
-        db.add(transaction)
         
         db.commit()
         db.refresh(creation)
@@ -414,9 +424,6 @@ async def create_image_variation(
     try:
         required_credits = request.num_variations * 80
         
-        if current_user.credits < required_credits:
-            raise HTTPException(status_code=402, detail="积分不足")
-        
         task_id = f"var_{uuid.uuid4().hex[:16]}"
         
         creation = Creation(
@@ -434,18 +441,13 @@ async def create_image_variation(
         db.add(creation)
         db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
-        current_user.credits -= required_credits
-        transaction = CreditTransaction(
-            user_id=current_user.id,
-            transaction_type=TransactionType.CONSUME,
-            amount=-required_credits,
-            balance_before=current_user.credits + required_credits,
-            balance_after=current_user.credits,
-            description=f"图片变体: {request.num_variations}张",
-            related_id=creation.id,
-            related_type="creation"
+        _consume_credits(
+            db,
+            current_user.id,
+            required_credits,
+            f"图片变体: {request.num_variations}张",
+            creation.id,
         )
-        db.add(transaction)
         db.commit()
         db.refresh(creation)
         
@@ -481,9 +483,6 @@ async def edit_image(
     try:
         required_credits = 120
         
-        if current_user.credits < required_credits:
-            raise HTTPException(status_code=402, detail="积分不足")
-        
         task_id = f"edit_{uuid.uuid4().hex[:16]}"
         
         creation = Creation(
@@ -502,18 +501,7 @@ async def edit_image(
         db.add(creation)
         db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
-        current_user.credits -= required_credits
-        transaction = CreditTransaction(
-            user_id=current_user.id,
-            transaction_type=TransactionType.CONSUME,
-            amount=-required_credits,
-            balance_before=current_user.credits + required_credits,
-            balance_after=current_user.credits,
-            description="图片编辑",
-            related_id=creation.id,
-            related_type="creation"
-        )
-        db.add(transaction)
+        _consume_credits(db, current_user.id, required_credits, "图片编辑", creation.id)
         db.commit()
         db.refresh(creation)
         
@@ -549,9 +537,6 @@ async def upscale_image(
     try:
         required_credits = 50 * request.scale
         
-        if current_user.credits < required_credits:
-            raise HTTPException(status_code=402, detail="积分不足")
-        
         task_id = f"upscale_{uuid.uuid4().hex[:16]}"
         
         creation = Creation(
@@ -569,18 +554,13 @@ async def upscale_image(
         db.add(creation)
         db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
-        current_user.credits -= required_credits
-        transaction = CreditTransaction(
-            user_id=current_user.id,
-            transaction_type=TransactionType.CONSUME,
-            amount=-required_credits,
-            balance_before=current_user.credits + required_credits,
-            balance_after=current_user.credits,
-            description=f"图片放大 {request.scale}x",
-            related_id=creation.id,
-            related_type="creation"
+        _consume_credits(
+            db,
+            current_user.id,
+            required_credits,
+            f"图片放大 {request.scale}x",
+            creation.id,
         )
-        db.add(transaction)
         db.commit()
         db.refresh(creation)
         

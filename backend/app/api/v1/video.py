@@ -27,6 +27,25 @@ def _refund_creation(db, creation, description: str):
     CreditService.refund_creation_credits(db, creation.id, description)
 
 
+def _consume_credits(db, user_id: int, amount: int, description: str, creation_id: int):
+    """统一消费入口：会员不扣积分，非会员延迟提交（随业务记录一起 commit）"""
+    from app.core.exceptions import BusinessException
+    from app.services.credit_service import CreditService
+    try:
+        CreditService.check_and_consume_credits(
+            db=db,
+            user_id=user_id,
+            amount=amount,
+            description=description,
+            related_id=creation_id,
+            related_type="creation",
+            commit=False,
+        )
+    except BusinessException as e:
+        db.rollback()
+        raise HTTPException(status_code=402, detail=e.detail)
+
+
 class VideoGenerateRequest(BaseModel):
     """视频生成请求"""
     prompt: str
@@ -358,16 +377,13 @@ async def generate_video(
 ):
     """生成视频 - 支持Cookie和API Key模式"""
     try:
-        # Cookie模式不需要积分
+        # 计算所需积分（根据时长和分辨率；Cookie模式免费）
+        required_credits = 0
         if not request.platform:
-            # 计算所需积分（根据时长和分辨率）
             base_credits = 200
             duration_multiplier = request.duration / 5  # 基准5秒
             resolution_multiplier = {"720p": 1.0, "1080p": 1.5, "4k": 2.5}.get(request.resolution, 1.0)
             required_credits = int(base_credits * duration_multiplier * resolution_multiplier)
-            
-            if current_user.credits < required_credits:
-                raise HTTPException(status_code=402, detail="积分不足")
         
         task_id = f"video_{uuid.uuid4().hex[:16]}"
         
@@ -388,25 +404,15 @@ async def generate_video(
         db.add(creation)
         db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
-        # 仅在API Key模式下扣除积分
+        # 仅在API Key模式下扣除积分（会员不扣）
         if not request.platform:
-            base_credits = 200
-            duration_multiplier = request.duration / 5
-            resolution_multiplier = {"720p": 1.0, "1080p": 1.5, "4k": 2.5}.get(request.resolution, 1.0)
-            required_credits = int(base_credits * duration_multiplier * resolution_multiplier)
-            
-            current_user.credits -= required_credits
-            transaction = CreditTransaction(
-                user_id=current_user.id,
-                transaction_type=TransactionType.CONSUME,
-                amount=-required_credits,
-                balance_before=current_user.credits + required_credits,
-                balance_after=current_user.credits,
-                description=f"视频生成: {request.duration}秒 {request.resolution}",
-                related_id=creation.id,
-                related_type="creation"
+            _consume_credits(
+                db,
+                current_user.id,
+                required_credits,
+                f"视频生成: {request.duration}秒 {request.resolution}",
+                creation.id,
             )
-            db.add(transaction)
         
         db.commit()
         db.refresh(creation)
@@ -458,9 +464,6 @@ async def text_to_video(
             if not ai_model:
                 raise HTTPException(status_code=400, detail="AI模型不存在或未启用")
         
-        if current_user.credits < required_credits:
-            raise HTTPException(status_code=402, detail="积分不足")
-        
         task_id = f"t2v_{uuid.uuid4().hex[:16]}"
         
         creation = Creation(
@@ -484,18 +487,7 @@ async def text_to_video(
         db.add(creation)
         db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
-        current_user.credits -= required_credits
-        transaction = CreditTransaction(
-            user_id=current_user.id,
-            transaction_type=TransactionType.CONSUME,
-            amount=-required_credits,
-            balance_before=current_user.credits + required_credits,
-            balance_after=current_user.credits,
-            description="文本转视频",
-            related_id=creation.id,
-            related_type="creation"
-        )
-        db.add(transaction)
+        _consume_credits(db, current_user.id, required_credits, "文本转视频", creation.id)
         db.commit()
         db.refresh(creation)
         
@@ -542,9 +534,6 @@ async def image_to_video(
             if not ai_model:
                 raise HTTPException(status_code=400, detail="AI模型不存在或未启用")
         
-        if current_user.credits < required_credits:
-            raise HTTPException(status_code=402, detail="积分不足")
-        
         task_id = f"i2v_{uuid.uuid4().hex[:16]}"
         
         creation = Creation(
@@ -568,18 +557,13 @@ async def image_to_video(
         db.add(creation)
         db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
-        current_user.credits -= required_credits
-        transaction = CreditTransaction(
-            user_id=current_user.id,
-            transaction_type=TransactionType.CONSUME,
-            amount=-required_credits,
-            balance_before=current_user.credits + required_credits,
-            balance_after=current_user.credits,
-            description=f"图片转视频: {len(request.images)}张",
-            related_id=creation.id,
-            related_type="creation"
+        _consume_credits(
+            db,
+            current_user.id,
+            required_credits,
+            f"图片转视频: {len(request.images)}张",
+            creation.id,
         )
-        db.add(transaction)
         db.commit()
         db.refresh(creation)
         

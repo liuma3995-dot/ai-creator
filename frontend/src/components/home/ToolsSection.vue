@@ -70,7 +70,7 @@ const writingTools = ref([
   { type: 'work_report', name: '工作报告', description: '适合工作总结、述职和复盘材料', icon: 'Management' },
   { type: 'resume', name: '简历求职', description: '撰写简历、求职信和岗位匹配内容', icon: 'User' },
   { type: 'lesson_plan', name: '教案课件', description: '辅助生成教学教案和课程提纲', icon: 'School' },
-  { type: 'content_rewrite', name: '内容改写', description: '支持改写、扩写、缩写和润色', icon: 'RefreshRight' },
+  { type: 'rewrite', name: '内容改写', description: '支持改写、扩写、缩写和润色', icon: 'RefreshRight' },
   { type: 'translation', name: '多语言翻译', description: '完成多语言内容翻译和表达优化', icon: 'Switch' },
 ])
 

@@ -26,6 +26,20 @@ from app.services.operation_service import CouponService
 
 class CreditService:
     """积分服务"""
+
+    @staticmethod
+    def is_member(db: Session, user_id: int) -> bool:
+        """判断用户当前是否为有效会员（自动处理过期）"""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return False
+        if user.is_member and user.member_expired_at:
+            if user.member_expired_at > datetime.now():
+                return True
+            # 会员已过期，更新状态
+            user.is_member = 0
+            db.commit()
+        return False
     
     @staticmethod
     def get_user_balance(db: Session, user_id: int) -> dict:
@@ -66,10 +80,14 @@ class CreditService:
         amount: int,
         description: str,
         related_id: Optional[int] = None,
-        related_type: Optional[str] = None
+        related_type: Optional[str] = None,
+        commit: bool = True,
     ) -> bool:
         """
         检查并消费积分（会员不扣积分）
+
+        commit=False 时不立即提交，由调用方与业务记录一起提交，保证原子性；
+        此时若调用方后续失败需自行 rollback，未提交的扣费不会落库。
         
         Args:
             db: 数据库会话
@@ -87,18 +105,8 @@ class CreditService:
         if not user:
             raise BusinessException("用户不存在")
         
-        # 检查是否是会员
-        is_member = False
-        if user.is_member and user.member_expired_at:
-            if user.member_expired_at > datetime.now():
-                is_member = True
-            else:
-                # 会员已过期
-                user.is_member = 0
-                db.commit()
-        
         # 会员不扣积分
-        if is_member:
+        if CreditService.is_member(db, user_id):
             return True
         
         # 非会员检查积分余额
@@ -122,7 +130,8 @@ class CreditService:
             related_type=related_type
         )
         db.add(transaction)
-        db.commit()
+        if commit:
+            db.commit()
         
         return True
     

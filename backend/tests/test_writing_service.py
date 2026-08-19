@@ -279,5 +279,96 @@ class TestPromptTemplates:
                         f"工具 {tool_type} 的占位符 {placeholder} 没有默认值"
 
 
+class TestToolTypeAliasAndCreationType:
+    """内容改写/新闻稿等工具类型别名与 creation_type 映射"""
+
+    def _make_model(self):
+        ai_model = Mock()
+        ai_model.provider = "openai"
+        ai_model.api_key = "test-key"
+        ai_model.model_name = "gpt-4"
+        ai_model.base_url = None
+        ai_model.id = 1
+        return ai_model
+
+    @pytest.mark.asyncio
+    async def test_content_rewrite_uses_rewrite_template(self, db_session):
+        """content_rewrite 别名归一化为 rewrite 模板，不再报不支持"""
+        fake = _FakeChatService()
+        ai_model = self._make_model()
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            result = await WritingService.generate_content(
+                db=db_session,
+                tool_type="content_rewrite",
+                user_input={
+                    "original_text": "原文内容",
+                    "rewrite_type": "改写",
+                    "target_style": "正式书面",
+                },
+                ai_model=ai_model,
+            )
+        prompt = fake.captured["message"]
+        assert result == "生成内容"
+        assert "内容改写专家" in prompt
+        assert "原文内容" in prompt
+
+    @pytest.mark.asyncio
+    async def test_press_release_uses_news_article_template(self, db_session):
+        """press_release 别名归一化为 news_article 模板"""
+        fake = _FakeChatService()
+        ai_model = self._make_model()
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            result = await WritingService.generate_content(
+                db=db_session,
+                tool_type="press_release",
+                user_input={
+                    "topic": "公司发布新产品",
+                    "news_type": "企业新闻稿",
+                    "key_info": "关键信息",
+                },
+                ai_model=ai_model,
+            )
+        prompt = fake.captured["message"]
+        assert result == "生成内容"
+        assert "专业新闻记者" in prompt
+        assert "公司发布新产品" in prompt
+
+    @pytest.mark.asyncio
+    async def test_academic_paper_template_works(self, db_session):
+        """论文写作模板可正常填充并生成"""
+        fake = _FakeChatService()
+        ai_model = self._make_model()
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            result = await WritingService.generate_content(
+                db=db_session,
+                tool_type="academic_paper",
+                user_input={
+                    "title": "人工智能在医疗诊断中的应用研究",
+                    "field": "计算机科学",
+                    "method": "文献研究",
+                    "main_points": "AI辅助诊断",
+                },
+                ai_model=ai_model,
+            )
+        prompt = fake.captured["message"]
+        assert result == "生成内容"
+        assert "学术论文写作专家" in prompt
+        assert "人工智能在医疗诊断中的应用研究" in prompt
+
+    def test_map_creation_type(self):
+        """写作工具类型 -> creations.creation_type ENUM 映射"""
+        from app.api.v1.writing import map_creation_type
+
+        assert map_creation_type("academic_paper") == "PAPER"
+        assert map_creation_type("content_rewrite") == "REWRITE"
+        assert map_creation_type("rewrite") == "REWRITE"
+        assert map_creation_type("press_release") == "NEWS_ARTICLE"
+        assert map_creation_type("resume_cover_letter") == "RESUME"
+        assert map_creation_type("story_novel") == "STORY"
+        assert map_creation_type("wechat_article") == "WECHAT_ARTICLE"
+        with pytest.raises(ValueError):
+            map_creation_type("unknown_tool")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

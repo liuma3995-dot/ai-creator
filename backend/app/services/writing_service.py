@@ -26,6 +26,18 @@ logger = logging.getLogger(__name__)
 
 class WritingService:
     """写作服务"""
+
+    # 工具类型别名：前端/历史记录中出现的旧类型名 -> 规范模板键
+    TOOL_ALIASES = {
+        "content_rewrite": "rewrite",
+        "press_release": "news_article",
+        "resume_cover_letter": "resume",
+    }
+
+    @classmethod
+    def _normalize_tool_type(cls, tool_type: str) -> str:
+        """将工具类型别名归一化为模板键"""
+        return cls.TOOL_ALIASES.get(tool_type, tool_type)
     
     # 写作工具提示词模板
     TOOL_PROMPTS = {
@@ -429,6 +441,7 @@ class WritingService:
             user_id: 用户ID（用于监控日志）
             creation_id: 关联创作ID（用于监控日志）
         """
+        tool_type = cls._normalize_tool_type(tool_type)
         # 获取提示词模板
         if tool_type not in cls.TOOL_PROMPTS:
             raise ValueError(f"不支持的写作工具类型: {tool_type}")
@@ -527,6 +540,7 @@ class WritingService:
         Returns:
             生成的内容
         """
+        tool_type = cls._normalize_tool_type(tool_type)
         # 动态导入Cookie管理器（避免循环导入）
         from app.services.cookie_ai_manager import CookieAIServiceManager
         
@@ -756,6 +770,7 @@ class WritingService:
                 "usage": dict  # token 使用情况
             }
         """
+        tool_type = cls._normalize_tool_type(tool_type)
         from app.services.plugins.plugin_manager import PluginManager
         from app.models.plugin import PluginInvocation, UserPlugin
         

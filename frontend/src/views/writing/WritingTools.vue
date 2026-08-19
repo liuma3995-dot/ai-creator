@@ -237,7 +237,7 @@ const writingTools = [
     usageCount: 632,
   },
   {
-    type: 'content_rewrite',
+    type: 'rewrite',
     name: '内容改写',
     description: '支持改写、扩写、压缩和风格调整。',
     icon: RefreshRight,

@@ -28,6 +28,25 @@ def _refund_creation(db, creation, description: str):
     CreditService.refund_creation_credits(db, creation.id, description)
 
 
+def _consume_credits(db, user_id: int, amount: int, description: str, creation_id: int):
+    """统一消费入口：会员不扣积分，非会员延迟提交（随业务记录一起 commit）"""
+    from app.core.exceptions import BusinessException
+    from app.services.credit_service import CreditService
+    try:
+        CreditService.check_and_consume_credits(
+            db=db,
+            user_id=user_id,
+            amount=amount,
+            description=description,
+            related_id=creation_id,
+            related_type="creation",
+            commit=False,
+        )
+    except BusinessException as e:
+        db.rollback()
+        raise HTTPException(status_code=402, detail=e.detail)
+
+
 class PPTGenerateRequest(BaseModel):
     topic: str
     model_id: Optional[int] = None
@@ -267,13 +286,10 @@ async def generate_ppt(
 ):
     """主题生成PPT - 支持Cookie和API Key模式"""
     try:
-        # Cookie模式不需要积分
+        # Cookie模式不需要积分；API Key模式计算所需积分
+        required_credits = 0
         if not request.platform:
-            # API Key模式：计算所需积分
             required_credits = (request.slides_count or 10) * 50
-            
-            if current_user.credits < required_credits:
-                raise HTTPException(status_code=402, detail="积分不足")
         
         task_id = f"ppt_{uuid.uuid4().hex[:16]}"
         creation = Creation(
@@ -289,21 +305,15 @@ async def generate_ppt(
         db.add(creation)
         db.flush()  # 先落库获取 creation.id，保证扣费流水可关联（D7）
         
-        # 仅在API Key模式下扣除积分
+        # 仅在API Key模式下扣除积分（会员不扣）
         if not request.platform:
-            required_credits = (request.slides_count or 10) * 50
-            current_user.credits -= required_credits
-            transaction = CreditTransaction(
-                user_id=current_user.id,
-                transaction_type=TransactionType.CONSUME,
-                amount=-required_credits,
-                balance_before=current_user.credits + required_credits,
-                balance_after=current_user.credits,
-                description=f"PPT生成: {request.slides_count}页",
-                related_id=creation.id,
-                related_type="creation"
+            _consume_credits(
+                db,
+                current_user.id,
+                required_credits,
+                f"PPT生成: {request.slides_count}页",
+                creation.id,
             )
-            db.add(transaction)
         
         db.commit()
         db.refresh(creation)

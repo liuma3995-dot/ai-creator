@@ -29,6 +29,35 @@ from app.models.credit import TransactionType
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# 工具类型 -> creations.creation_type（ENUM 枚举值）映射
+TOOL_CREATION_TYPE = {
+    "wechat_article": "WECHAT_ARTICLE",
+    "xiaohongshu_note": "XIAOHONGSHU_NOTE",
+    "official_document": "OFFICIAL_DOCUMENT",
+    "academic_paper": "PAPER",
+    "marketing_copy": "MARKETING_COPY",
+    "press_release": "NEWS_ARTICLE",
+    "news_article": "NEWS_ARTICLE",
+    "video_script": "VIDEO_SCRIPT",
+    "story_novel": "STORY",
+    "business_plan": "BUSINESS_PLAN",
+    "work_report": "WORK_REPORT",
+    "resume": "RESUME",
+    "resume_cover_letter": "RESUME",
+    "lesson_plan": "LESSON_PLAN",
+    "rewrite": "REWRITE",
+    "content_rewrite": "REWRITE",
+    "translation": "TRANSLATION",
+}
+
+
+def map_creation_type(tool_type: str) -> str:
+    """将写作工具类型映射为 creations.creation_type 的 ENUM 值"""
+    creation_type = TOOL_CREATION_TYPE.get(tool_type)
+    if not creation_type:
+        raise ValueError(f"不支持的写作工具类型: {tool_type}")
+    return creation_type
+
 
 @router.get("/tools", response_model=List[WritingToolInfo])
 def get_writing_tools() -> Any:
@@ -72,7 +101,7 @@ def get_writing_tools() -> Any:
             "category": "marketing",
         },
         {
-            "tool_type": "press_release",
+            "tool_type": "news_article",
             "name": "新闻稿/软文",
             "description": "撰写专业的新闻稿或软文",
             "icon": "📰",
@@ -107,7 +136,7 @@ def get_writing_tools() -> Any:
             "category": "professional",
         },
         {
-            "tool_type": "resume_cover_letter",
+            "tool_type": "resume",
             "name": "简历/求职信",
             "description": "创作专业的简历和求职信",
             "icon": "👔",
@@ -121,7 +150,7 @@ def get_writing_tools() -> Any:
             "category": "education",
         },
         {
-            "tool_type": "content_rewrite",
+            "tool_type": "rewrite",
             "name": "内容改写/扩写/缩写",
             "description": "对现有内容进行改写、扩写或缩写",
             "icon": "✏️",
@@ -237,7 +266,7 @@ async def generate_content(
             user_id=current_user.id,
             title=f"{request.tool_type} - {(request.parameters or {}).get('topic', '未命名')}",
             output_content=content,
-            creation_type=request.tool_type,
+            creation_type=map_creation_type(request.tool_type),
             tool_type=request.tool_type,
             input_data=request.parameters,
             extra_data=extra_data if extra_data else None,
@@ -253,6 +282,7 @@ async def generate_content(
     except HTTPException:
         # 扣费成功后的业务失败（如模型不存在 404）也退还积分（D6）
         if not current_user.is_member:
+            db.rollback()  # 先清理可能已回滚的事务，避免退款被同一会话错误掩盖
             CreditService.add_credits(
                 db=db,
                 user_id=current_user.id,
@@ -265,6 +295,7 @@ async def generate_content(
         logger.error(f"Content generation failed: {e}", exc_info=True)
         # 生成失败，退还积分
         if not current_user.is_member:
+            db.rollback()
             CreditService.add_credits(
                 db=db,
                 user_id=current_user.id,
@@ -500,6 +531,7 @@ async def regenerate_content(
     except HTTPException:
         # 扣费成功后的业务失败（如模型不存在 404）也退还积分（D6）
         if not current_user.is_member:
+            db.rollback()
             CreditService.add_credits(
                 db=db,
                 user_id=current_user.id,
@@ -511,6 +543,7 @@ async def regenerate_content(
     except Exception as e:
         # 生成失败，退还积分
         if not current_user.is_member:
+            db.rollback()
             CreditService.add_credits(
                 db=db,
                 user_id=current_user.id,
@@ -616,6 +649,7 @@ async def optimize_content(
     except HTTPException:
         # 扣费成功后的业务失败（如模型不存在 404）也退还积分（D6）
         if not current_user.is_member:
+            db.rollback()
             CreditService.add_credits(
                 db=db,
                 user_id=current_user.id,
@@ -627,6 +661,7 @@ async def optimize_content(
     except ValueError as e:
         # 不支持的优化类型等业务错误，退还积分
         if not current_user.is_member:
+            db.rollback()
             CreditService.add_credits(
                 db=db,
                 user_id=current_user.id,
@@ -642,6 +677,7 @@ async def optimize_content(
         logger.error(f"Content optimization failed: {e}", exc_info=True)
         # 优化失败，退还积分
         if not current_user.is_member:
+            db.rollback()
             CreditService.add_credits(
                 db=db,
                 user_id=current_user.id,
@@ -660,7 +696,257 @@ async def optimize_content(
 # URL 内容抓取
 # ============================================================================
 
-from pydantic import BaseModel, HttpUrl
+import ipaddress
+import re
+import socket
+from typing import Tuple
+from urllib.parse import urljoin, urlsplit, urlunsplit
+
+import httpx
+from bs4 import BeautifulSoup
+from pydantic import BaseModel
+
+
+def _is_public_ip(ip_str: str) -> bool:
+    """判断 IP 是否可对外访问（拒绝回环/私网/链路本地/保留/组播/未指定）"""
+    try:
+        ip = ipaddress.ip_address(ip_str.split("%")[0])
+    except ValueError:
+        return False
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def _resolve_public_ips(host: str) -> list:
+    """解析主机所有地址；解析失败视为不可访问"""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise ValueError("域名解析失败，无法访问该地址")
+    addrs = [info[4][0] for info in infos]
+    if not addrs:
+        raise ValueError("域名解析失败，无法访问该地址")
+    return addrs
+
+
+def validate_fetch_url(url: str) -> str:
+    """SSRF 防护：仅允许公网 http/https，且解析结果必须为公网地址"""
+    url = (url or "").strip()
+    if not url:
+        raise ValueError("请输入URL")
+    # 协议白名单：识别显式 scheme（含 javascript:alert(1) 这类无 "://" 的写法）
+    scheme_match = re.match(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):", url)
+    if scheme_match and scheme_match.group(1).lower() not in ("http", "https"):
+        raise ValueError("仅支持 http/https 协议")
+    if "://" not in url:
+        url = "https://" + url
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in ("http", "https"):
+        raise ValueError("仅支持 http/https 协议")
+    host = parts.hostname or ""
+    if not host:
+        raise ValueError("URL 缺少有效主机名")
+
+    host_lower = host.lower()
+    if host_lower in ("localhost", "localhost.localdomain") or host_lower.endswith(".localhost"):
+        raise ValueError("禁止访问本机地址")
+
+    # IP 字面量直接判断
+    try:
+        ip = ipaddress.ip_address(host_lower.split("%")[0])
+    except ValueError:
+        # 域名：解析后逐地址校验，防止解析到内网
+        for addr in _resolve_public_ips(host):
+            if not _is_public_ip(addr):
+                raise ValueError("目标域名解析到内网/保留地址，已拦截")
+    else:
+        if not _is_public_ip(str(ip)):
+            raise ValueError("禁止访问内网或保留地址")
+
+    # 去掉 fragment，保留协议/主机/路径/查询
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+
+
+_FETCH_HEADERS_SET = [
+    {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+    },
+    {
+        # 备用 UA：部分站点对常见 Chrome UA 拦截
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+    },
+]
+
+_CONTENT_SELECTORS = [
+    "article",
+    '[role="main"]',
+    ".article-content",
+    ".post-content",
+    ".entry-content",
+    ".content",
+    ".main-content",
+    "#content",
+    "#article",
+    ".article",
+    ".post",
+    "main",
+]
+
+
+def _extract_page_content(html: str) -> Tuple[str, str]:
+    """从 HTML 提取标题与正文文本"""
+    soup = BeautifulSoup(html, "html.parser")
+
+    title = (soup.title.string or "").strip() if soup.title else ""
+
+    for tag in soup(
+        ["script", "style", "nav", "header", "footer", "aside",
+         "iframe", "noscript", "form", "button", "input", "svg"]
+    ):
+        tag.decompose()
+
+    main_content = None
+    for selector in _CONTENT_SELECTORS:
+        main_content = soup.select_one(selector)
+        if main_content:
+            break
+    if not main_content:
+        main_content = soup.body or soup
+
+    text_parts = []
+    for element in main_content.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "pre", "blockquote"]):
+        text = element.get_text(strip=True)
+        if text and len(text) > 10:
+            text_parts.append(text)
+
+    content = re.sub(r"\n{3,}", "\n\n", "\n\n".join(text_parts)).strip()
+
+    # 兜底：语义标签提取不到时，按文本密度从页面主体提取（兼容 SPA/div 布局）
+    if len(content) < 80:
+        lines = []
+        for raw_line in (soup.get_text(separator="\n") or "").split("\n"):
+            line = raw_line.strip()
+            if len(line) > 10 and line not in lines:
+                lines.append(line)
+        dense_content = re.sub(r"\n{3,}", "\n\n", "\n\n".join(lines)).strip()
+        if len(dense_content) > len(content):
+            content = dense_content
+
+    if len(content) > 10000:
+        content = content[:10000] + "\n\n...(内容过长，已截断)"
+    return title, content
+
+
+def _decode_response(response: httpx.Response) -> str:
+    """按响应头 charset 解码，避免中文乱码"""
+    content_type = response.headers.get("content-type", "")
+    if "charset=" in content_type:
+        encoding = content_type.split("charset=")[-1].split(";")[0].strip()
+        try:
+            return response.content.decode(encoding, errors="ignore")
+        except LookupError:
+            pass
+    return response.content.decode(response.encoding or "utf-8", errors="ignore")
+
+
+async def _fetch_with_ssrf_guard(
+    client: httpx.AsyncClient, url: str, headers: dict
+) -> httpx.Response:
+    """手动跟随重定向并逐跳校验（防重定向 SSRF）"""
+    current = url
+    for _ in range(5):
+        current = validate_fetch_url(current)
+        response = await client.get(
+            current, headers=headers, follow_redirects=False, timeout=20.0
+        )
+        if response.status_code in (301, 302, 303, 307, 308):
+            location = response.headers.get("location")
+            if not location:
+                return response
+            current = urljoin(current, location)
+            continue
+        return response
+    raise ValueError("重定向次数过多")
+
+
+async def _fetch_static_html(url: str) -> Optional[str]:
+    """静态抓取（含重定向校验与 UA 重试），失败抛异常"""
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        last_error = None
+        for headers in _FETCH_HEADERS_SET:
+            try:
+                response = await _fetch_with_ssrf_guard(client, url, headers)
+                if response.status_code in (403, 429):
+                    last_error = response
+                    continue  # 换 UA 再试
+                response.raise_for_status()
+                return _decode_response(response)
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                continue
+            except (httpx.TimeoutException, httpx.RequestError) as e:
+                last_error = str(e)
+                continue
+        if isinstance(last_error, httpx.Response):
+            raise httpx.HTTPStatusError(
+                f"HTTP {last_error.status_code}",
+                request=last_error.request,
+                response=last_error,
+            )
+        if isinstance(last_error, httpx.HTTPStatusError):
+            raise last_error
+        raise ValueError(last_error or "抓取失败")
+
+
+async def _fetch_rendered_html(url: str) -> Optional[str]:
+    """无头浏览器渲染 JS 页面；失败返回 None（反爬降级）"""
+    try:
+        from playwright.async_api import async_playwright
+    except Exception:
+        return None
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+            )
+            try:
+                page = await browser.new_page(
+                    user_agent=_FETCH_HEADERS_SET[0]["User-Agent"],
+                    viewport={"width": 1280, "height": 800},
+                )
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(2500)  # 等待 JS 渲染
+                return await page.content()
+            finally:
+                await browser.close()
+    except Exception as e:
+        logger.warning(f"Playwright render failed: {e}")
+        return None
+
 
 class UrlFetchRequest(BaseModel):
     """URL抓取请求"""
@@ -680,124 +966,46 @@ async def fetch_url_content(
 ) -> Any:
     """
     抓取URL内容
-    
+
     从给定的URL抓取网页内容，提取正文文本。
     用于内容改写/扩写/缩写功能。
+
+    安全与兼容性：
+    - SSRF 防护：仅允许公网 http/https，拒绝内网/回环/保留地址，重定向逐跳校验
+    - 反爬增强：完整浏览器请求头 + UA 重试；静态抓取失败或内容为空时，
+      自动降级为无头浏览器渲染 JS 页面后再提取
     """
-    import httpx
-    from bs4 import BeautifulSoup
-    import re
-    
-    url = request.url.strip()
-    
-    # 验证URL格式
-    if not url.startswith(('http://', 'https://')):
-        url = 'https://' + url
-    
     try:
-        # 设置请求头，模拟浏览器
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        }
-        
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            
-            # 检测编码
-            content_type = response.headers.get('content-type', '')
-            if 'charset=' in content_type:
-                encoding = content_type.split('charset=')[-1].split(';')[0].strip()
-            else:
-                encoding = response.encoding or 'utf-8'
-            
-            html_content = response.content.decode(encoding, errors='ignore')
-        
-        # 解析HTML
-        soup = BeautifulSoup(html_content, 'html.parser')
-        
-        # 获取标题
-        title = ""
-        if soup.title:
-            title = soup.title.string or ""
-        
-        # 移除不需要的标签
-        for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 
-                         'iframe', 'noscript', 'form', 'button', 'input']):
-            tag.decompose()
-        
-        # 尝试找到主要内容区域
-        main_content = None
-        
-        # 常见的正文容器选择器
-        content_selectors = [
-            'article',
-            '[role="main"]',
-            '.article-content',
-            '.post-content',
-            '.entry-content',
-            '.content',
-            '.main-content',
-            '#content',
-            '#article',
-            '.article',
-            '.post',
-            'main',
-        ]
-        
-        for selector in content_selectors:
-            main_content = soup.select_one(selector)
-            if main_content:
-                break
-        
-        # 如果找不到主要内容区域，使用body
-        if not main_content:
-            main_content = soup.body or soup
-        
-        # 提取文本
-        text_parts = []
-        for element in main_content.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li']):
-            text = element.get_text(strip=True)
-            if text and len(text) > 10:  # 过滤太短的内容
-                text_parts.append(text)
-        
-        content = '\n\n'.join(text_parts)
-        
-        # 清理多余空白
-        content = re.sub(r'\n{3,}', '\n\n', content)
-        content = content.strip()
-        
-        if not content:
-            return UrlFetchResponse(
-                success=False,
-                error="无法从该页面提取有效内容"
-            )
-        
-        # 限制内容长度
-        if len(content) > 10000:
-            content = content[:10000] + "\n\n...(内容过长，已截断)"
-        
-        return UrlFetchResponse(
-            success=True,
-            title=title.strip(),
-            content=content
-        )
-        
+        url = validate_fetch_url(request.url)
+    except ValueError as e:
+        return UrlFetchResponse(success=False, error=str(e))
+
+    html = None
+    try:
+        html = await _fetch_static_html(url)
     except httpx.TimeoutException:
-        return UrlFetchResponse(
-            success=False,
-            error="请求超时，请检查URL是否可访问"
-        )
+        return UrlFetchResponse(success=False, error="请求超时，请检查URL是否可访问")
     except httpx.HTTPStatusError as e:
-        return UrlFetchResponse(
-            success=False,
-            error=f"HTTP错误: {e.response.status_code}"
-        )
+        # 403/429 等反爬拦截时降级为无头浏览器渲染
+        if e.response.status_code not in (403, 429):
+            return UrlFetchResponse(success=False, error=f"HTTP错误: {e.response.status_code}")
+    except httpx.RequestError as e:
+        return UrlFetchResponse(success=False, error=f"抓取失败: {str(e)}")
+    except ValueError as e:
+        return UrlFetchResponse(success=False, error=str(e))
     except Exception as e:
-        logger.error(f"URL fetch error: {e}")
-        return UrlFetchResponse(
-            success=False,
-            error=f"抓取失败: {str(e)}"
-        )
+        logger.error(f"URL fetch error: {e}", exc_info=True)
+        return UrlFetchResponse(success=False, error=f"抓取失败: {str(e)}")
+
+    title, content = _extract_page_content(html) if html else ("", "")
+
+    # 静态抓取内容为空、标题为空（JS 动态写入）或反爬被拦截 → 无头浏览器渲染后再提取
+    if not content or not title:
+        rendered_html = await _fetch_rendered_html(url)
+        if rendered_html:
+            title, content = _extract_page_content(rendered_html)
+
+    if not content:
+        return UrlFetchResponse(success=False, error="无法从该页面提取有效内容")
+
+    return UrlFetchResponse(success=True, title=title, content=content)
