@@ -342,6 +342,10 @@ async def validate_publish_cookies_page(request: Request, platform: str):
                 const cookies = await getCookiesFromPage();
                 
                 // 发送Cookie到后端
+                // 支持从 URL 查询参数读取 account_name（前端可预填账号名），缺省时弹窗询问
+                const queryParams = new URLSearchParams(window.location.search);
+                const urlAccountName = queryParams.get('account_name');
+                const accountName = urlAccountName || prompt('请输入账号名称：', platform + '_account');
                 const response = await fetch('{base_url}/api/v1/publish/platforms/accounts/cookie-submit', {{
                     method: 'POST',
                     headers: {{
@@ -352,7 +356,7 @@ async def validate_publish_cookies_page(request: Request, platform: str):
                         platform: platform,
                         cookies: cookies,
                         user_agent: navigator.userAgent,
-                        account_name: prompt('请输入账号名称：', platform + '_account')
+                        account_name: accountName
                     }})
                 }});
                 

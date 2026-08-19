@@ -43,11 +43,11 @@ def test_forbidden_admin_call_still_logged(client, db_session, auth_headers):
         },
         headers=auth_headers,
     )
-    assert r.status_code == 403
+    assert r.status_code in (401, 403)
 
     log = db_session.query(AdminAuditLog).filter(
         AdminAuditLog.path == "/api/v1/admin/operation/coupons",
         AdminAuditLog.username == "testuser",
     ).order_by(AdminAuditLog.id.desc()).first()
     assert log is not None
-    assert log.status_code == 403
+    assert log.status_code in (401, 403)

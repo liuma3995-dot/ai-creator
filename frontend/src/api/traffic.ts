@@ -59,14 +59,14 @@ export function batchTrack(data: BatchTrackRequest) {
  * 获取流量统计缓存状态（管理员）
  */
 export function getTrackerStats() {
-    return request.get<{ code: number; data: TrackStatsResponse }>('/v1/traffic/stats')
+    return request.get<{ code: number; data: TrackStatsResponse }>('/v1/admin/traffic/stats')
 }
 
 /**
  * 获取流量概览（管理员）
  */
 export function getTrafficOverview() {
-    return request.get<{ code: number; data: any }>('/v1/traffic/overview')
+    return request.get<{ code: number; data: any }>('/v1/admin/traffic/overview')
 }
 
 /**
@@ -84,7 +84,7 @@ export function getDailyStats(days: number = 30) {
             total_requests: number
         }>
     }>(
-        '/v1/traffic/daily',
+        '/v1/admin/traffic/daily',
         {params: {days}}
     )
 }
@@ -94,7 +94,7 @@ export function getDailyStats(days: number = 30) {
  */
 export function getHotPages(days?: number, limit?: number) {
     return request.get<{ code: number; data: Array<{ path: string; pv: number; uv: number; avg_duration: number }> }>(
-        '/v1/traffic/hot-pages',
+        '/v1/admin/traffic/hot-pages',
         {params: {days, limit}}
     )
 }
@@ -107,7 +107,7 @@ export function getClickEvents(days?: number, limit?: number) {
         code: number;
         data: Array<{ event_name: string; event_target: string; page_path: string; click_count: number }>
     }>(
-        '/v1/traffic/click-events',
+        '/v1/admin/traffic/click-events',
         {params: {days, limit}}
     )
 }

@@ -8,10 +8,10 @@ from sqlalchemy.orm import Session
 from jose import JWTError
 
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import decode_token, get_current_admin_user
 from app.models.user import User, UserStatus
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
@@ -21,10 +21,15 @@ def get_current_user(
     """
     获取当前登录用户
     """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未提供认证凭证，请先登录",
+        )
     token = credentials.credentials
     
     try:
-        payload = decode_token(token)
+        payload = decode_token(token, expected_type="user")
         user_id: int = payload.get("sub")
         if user_id is None:
             raise HTTPException(
@@ -80,7 +85,7 @@ def get_current_user_optional(
     token = credentials.credentials
     
     try:
-        payload = decode_token(token)
+        payload = decode_token(token, expected_type="user")
         user_id: int = payload.get("sub")
         if user_id is None:
             return None
@@ -98,19 +103,11 @@ def get_current_user_optional(
 
 
 def get_admin_user(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin_user)
 ) -> User:
     """
-    获取管理员用户
+    获取管理员用户（要求 admin 类型令牌 + 管理员角色，T1 令牌分离）
     """
-    from app.models.user import UserRole
-    
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要管理员权限"
-        )
-    
     return current_user
 
 

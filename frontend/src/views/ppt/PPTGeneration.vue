@@ -6,7 +6,6 @@
         <template #header>
           <div class="card-header">
             <span>PPT 生成</span>
-            <el-tag type="info" size="small">消耗10积分</el-tag>
           </div>
         </template>
 

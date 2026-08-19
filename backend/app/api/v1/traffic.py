@@ -18,6 +18,8 @@ from app.services.tracker_service import tracker_service
 from app.utils.deps import get_admin_user
 
 router = APIRouter()
+# 管理端流量统计路由：挂在 /api/v1/admin/traffic 下，前端自动携带 admin 令牌并受 IP 白名单保护
+admin_router = APIRouter()
 
 
 # ===== 批量上报 Schema =====
@@ -133,7 +135,7 @@ async def batch_track(
     )
 
 
-@router.get("/stats")
+@admin_router.get("/stats")
 def get_tracker_stats(
     current_user: User = Depends(get_admin_user)
 ) -> Any:
@@ -148,7 +150,7 @@ def get_tracker_stats(
 
 # ===== 管理员查询接口 =====
 
-@router.get("/overview")
+@admin_router.get("/overview")
 def get_traffic_overview(
     current_user: User = Depends(get_admin_user),
     db: Session = Depends(get_db)
@@ -240,7 +242,7 @@ def get_traffic_overview(
     )
 
 
-@router.get("/daily")
+@admin_router.get("/daily")
 def get_daily_stats(
     days: int = Query(default=30, ge=1, le=90, description="查询天数"),
     current_user: User = Depends(get_admin_user),
@@ -301,7 +303,7 @@ def get_daily_stats(
     return success_response(data=daily_data)
 
 
-@router.get("/hot-pages")
+@admin_router.get("/hot-pages")
 def get_hot_pages(
     days: int = Query(default=7, ge=1, le=90, description="查询天数"),
     limit: int = Query(default=10, ge=1, le=50, description="返回数量"),
@@ -339,7 +341,7 @@ def get_hot_pages(
     ])
 
 
-@router.get("/click-events")
+@admin_router.get("/click-events")
 def get_click_events(
     days: int = Query(default=7, ge=1, le=90, description="查询天数"),
     limit: int = Query(default=20, ge=1, le=100, description="返回数量"),

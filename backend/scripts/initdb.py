@@ -15,6 +15,8 @@
     cd backend
     python -m scripts.initdb
 """
+import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -497,6 +499,14 @@ def step_add_capabilities_column():
         db.close()
 
 
+def _resolve_admin_password() -> tuple:
+    """解析管理员初始密码：优先环境变量 ADMIN_INIT_PASSWORD，否则生成随机强密码（T3）"""
+    env_password = os.environ.get("ADMIN_INIT_PASSWORD")
+    if env_password:
+        return env_password, False
+    return secrets.token_urlsafe(12), True
+
+
 def step_init_admin_user():
     """步骤8: 初始化管理员用户"""
     logger.info("=" * 50)
@@ -517,10 +527,11 @@ def step_init_admin_user():
         if existing_admin:
             logger.info(f"  管理员用户已存在: {existing_admin.username}，跳过")
         else:
+            admin_password, generated = _resolve_admin_password()
             admin_user = User(
                 username="admin",
                 email="admin@ai-creator.com",
-                password_hash=get_password_hash("Admin@123456"),
+                password_hash=get_password_hash(admin_password),
                 nickname="管理员",
                 role=UserRole.ADMIN,
                 status=UserStatus.ACTIVE,
@@ -531,9 +542,12 @@ def step_init_admin_user():
             db.commit()
             logger.success("  管理员用户创建成功")
             logger.info("    用户名: admin")
-            logger.info("    密码: Admin@123456")
             logger.info("    邮箱: admin@ai-creator.com")
             logger.info("    积分: 10000")
+            if generated:
+                logger.warning(f"    ⚠️  初始密码（仅显示一次，请立即保存并登录修改）: {admin_password}")
+            else:
+                logger.info("    初始密码: 已通过环境变量 ADMIN_INIT_PASSWORD 配置")
             logger.warning("    ⚠️  请登录后立即修改密码！")
 
         logger.success("管理员用户初始化完成")

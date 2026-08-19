@@ -72,20 +72,20 @@ class TestTrafficStatsAPI:
     """流量统计查询接口测试"""
 
     def test_stats_requires_admin(self, client, auth_headers, mock_tracker):
-        r = client.get("/api/v1/traffic/stats", headers=auth_headers)
-        assert r.status_code == 403
+        r = client.get("/api/v1/admin/traffic/stats", headers=auth_headers)
+        assert r.status_code in (401, 403)
 
     def test_stats_as_admin(self, client, admin_headers, mock_tracker):
-        r = client.get("/api/v1/traffic/stats", headers=admin_headers)
+        r = client.get("/api/v1/admin/traffic/stats", headers=admin_headers)
         assert r.status_code == 200
         assert r.json()["data"] == {"page_views": 0, "updates": 0, "events": 0}
 
     def test_overview_requires_admin(self, client, auth_headers):
-        r = client.get("/api/v1/traffic/overview", headers=auth_headers)
-        assert r.status_code == 403
+        r = client.get("/api/v1/admin/traffic/overview", headers=auth_headers)
+        assert r.status_code in (401, 403)
 
     def test_overview_empty(self, client, admin_headers):
-        r = client.get("/api/v1/traffic/overview", headers=admin_headers)
+        r = client.get("/api/v1/admin/traffic/overview", headers=admin_headers)
         assert r.status_code == 200
         data = r.json()["data"]
         assert data["today_pv"] == 0
@@ -95,21 +95,21 @@ class TestTrafficStatsAPI:
         assert data["bounce_rate"] == 0
 
     def test_daily_default_days(self, client, admin_headers):
-        r = client.get("/api/v1/traffic/daily", headers=admin_headers)
+        r = client.get("/api/v1/admin/traffic/daily", headers=admin_headers)
         assert r.status_code == 200
         # start = today - 30，循环含两端，共 31 天
         assert len(r.json()["data"]) == 31
 
     def test_daily_days_out_of_range(self, client, admin_headers):
-        r = client.get("/api/v1/traffic/daily", params={"days": 91}, headers=admin_headers)
+        r = client.get("/api/v1/admin/traffic/daily", params={"days": 91}, headers=admin_headers)
         assert r.status_code == 422
 
     def test_hot_pages_empty(self, client, admin_headers):
-        r = client.get("/api/v1/traffic/hot-pages", headers=admin_headers)
+        r = client.get("/api/v1/admin/traffic/hot-pages", headers=admin_headers)
         assert r.status_code == 200
         assert r.json()["data"] == []
 
     def test_click_events_empty(self, client, admin_headers):
-        r = client.get("/api/v1/traffic/click-events", headers=admin_headers)
+        r = client.get("/api/v1/admin/traffic/click-events", headers=admin_headers)
         assert r.status_code == 200
         assert r.json()["data"] == []

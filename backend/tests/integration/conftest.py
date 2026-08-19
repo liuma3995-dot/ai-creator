@@ -147,7 +147,7 @@ def admin_user(mysql_session):
 def admin_headers(client, admin_user):
     """管理员认证头"""
     response = client.post(
-        "/api/v1/auth/login",
+        "/api/v1/auth/admin/login",
         json={"username": admin_user.username, "password": "adminpass123"},
     )
     assert response.status_code == 200

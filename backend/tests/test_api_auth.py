@@ -21,8 +21,8 @@ class TestAuthAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 200
-        assert "access_token" in data["data"]
-        assert data["data"]["token_type"] == "bearer"
+        assert data["data"]["username"] == "newuser"
+        assert data["data"]["role"] == "user"
     
     def test_register_duplicate_username(self, client, test_user):
         """测试注册重复用户名"""
@@ -146,15 +146,15 @@ class TestAuthAPI:
     def test_update_profile(self, client, auth_headers):
         """测试更新用户资料"""
         response = client.put(
-            "/api/v1/auth/profile",
+            "/api/v1/auth/me",
             headers=auth_headers,
             json={
-                "email": "newemail@example.com"
+                "nickname": "新昵称",
             }
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["data"]["email"] == "newemail@example.com"
+        assert data["data"]["nickname"] == "新昵称"
     
     def test_change_password(self, client, auth_headers):
         """测试修改密码"""

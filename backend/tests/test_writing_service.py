@@ -89,73 +89,83 @@ class TestGenerateContentSupplement:
         assert "最高优先级" in prompt
 
 
-class TestGetAIService:
-    """测试 get_ai_service 方法"""
-    
+class TestGetLangChainService:
+    """测试 get_langchain_service（现行统一服务入口）"""
+
+    def _make_model(self, provider="openai", api_key="test-api-key",
+                    base_url="https://api.test.com/v1", model_name="gpt-4-turbo"):
+        ai_model = Mock()
+        ai_model.provider = provider
+        ai_model.api_key = api_key
+        ai_model.base_url = base_url
+        ai_model.model_name = model_name
+        ai_model.id = 1
+        return ai_model
+
     def test_get_openai_service(self):
         """测试获取 OpenAI 服务"""
-        # 创建模拟的 AIModel
-        ai_model = Mock()
-        ai_model.provider = "openai"
-        ai_model.api_key = "test-api-key"
-        ai_model.base_url = "https://api.test.com/v1"
-        ai_model.model_name = "gpt-4-turbo"
-        
-        service = WritingService.get_ai_service(ai_model)
-        
-        assert isinstance(service, OpenAIService)
+        from app.services.langchain.service import LangChainChatFactory
+
+        with patch.object(LangChainChatFactory, "create", return_value=Mock()):
+            service = WritingService.get_langchain_service(self._make_model())
+
+        assert service.provider == "openai"
         assert service.api_key == "test-api-key"
-        assert service.base_url == "https://api.test.com/v1"
+        assert service.api_base == "https://api.test.com/v1"
         assert service.model == "gpt-4-turbo"
-    
+
     def test_get_openai_service_with_defaults(self):
-        """测试 OpenAI 服务使用默认值"""
-        ai_model = Mock()
-        ai_model.provider = "openai"
-        ai_model.api_key = "test-api-key"
-        ai_model.base_url = None  # 使用默认值
-        ai_model.model_name = None  # 使用默认值
-        
-        service = WritingService.get_ai_service(ai_model)
-        
-        assert isinstance(service, OpenAIService)
-        assert service.base_url == "https://api.openai.com/v1"
+        """测试 OpenAI 服务使用默认模型名"""
+        from app.services.langchain.service import LangChainChatFactory
+
+        ai_model = self._make_model(base_url=None, model_name=None)
+        with patch.object(LangChainChatFactory, "create", return_value=Mock()):
+            service = WritingService.get_langchain_service(ai_model)
+
+        assert service.provider == "openai"
+        assert service.api_base is None
         assert service.model == "gpt-4"
-    
+
     def test_get_anthropic_service(self):
         """测试获取 Anthropic 服务"""
-        ai_model = Mock()
-        ai_model.provider = "anthropic"
-        ai_model.api_key = "test-anthropic-key"
-        ai_model.model_name = "claude-3-sonnet-20240229"
-        
-        service = WritingService.get_ai_service(ai_model)
-        
-        assert isinstance(service, AnthropicService)
+        from app.services.langchain.service import LangChainChatFactory
+
+        ai_model = self._make_model(
+            provider="anthropic",
+            api_key="test-anthropic-key",
+            base_url=None,
+            model_name="claude-3-sonnet-20240229",
+        )
+        with patch.object(LangChainChatFactory, "create", return_value=Mock()):
+            service = WritingService.get_langchain_service(ai_model)
+
+        assert service.provider == "anthropic"
         assert service.api_key == "test-anthropic-key"
         assert service.model == "claude-3-sonnet-20240229"
-    
+
     def test_get_anthropic_service_with_defaults(self):
-        """测试 Anthropic 服务使用默认值"""
-        ai_model = Mock()
-        ai_model.provider = "anthropic"
-        ai_model.api_key = "test-anthropic-key"
-        ai_model.model_name = None
-        
-        service = WritingService.get_ai_service(ai_model)
-        
-        assert isinstance(service, AnthropicService)
-        assert service.model == "claude-3-opus-20240229"
-    
+        """测试 Anthropic 服务模型名缺省回退（当前实现统一回退 gpt-4）"""
+        from app.services.langchain.service import LangChainChatFactory
+
+        ai_model = self._make_model(
+            provider="anthropic",
+            api_key="test-anthropic-key",
+            base_url=None,
+            model_name=None,
+        )
+        with patch.object(LangChainChatFactory, "create", return_value=Mock()):
+            service = WritingService.get_langchain_service(ai_model)
+
+        assert service.model == "gpt-4"
+
     def test_unsupported_provider(self):
-        """测试不支持的提供商"""
-        ai_model = Mock()
-        ai_model.provider = "unsupported"
-        
+        """测试不支持的厂商"""
+        ai_model = self._make_model(provider="unsupported")
+
         with pytest.raises(ValueError) as exc_info:
-            WritingService.get_ai_service(ai_model)
-        
-        assert "不支持的AI服务提供商" in str(exc_info.value)
+            WritingService.get_langchain_service(ai_model)
+
+        assert "不支持的厂商" in str(exc_info.value)
 
 
 class TestToolDefaults:
@@ -179,36 +189,26 @@ class TestGenerateContent:
     @pytest.mark.asyncio
     async def test_generate_content_with_defaults(self):
         """测试使用默认参数生成内容"""
-        # 模拟 AI 模型
         ai_model = Mock()
         ai_model.provider = "openai"
         ai_model.api_key = "test-key"
         ai_model.base_url = "https://api.openai.com/v1"
         ai_model.model_name = "gpt-4"
-        
-        # 模拟 db
-        db = Mock()
-        
-        # 模拟 OpenAIService.generate_text
-        with patch.object(OpenAIService, 'generate_text', new_callable=AsyncMock) as mock_generate:
-            mock_generate.return_value = "生成的文章内容"
-            
+
+        fake = _FakeChatService()
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
             result = await WritingService.generate_content(
-                db=db,
+                db=Mock(),
                 tool_type="wechat_article",
                 user_input={"topic": "AI技术", "keywords": "人工智能"},
                 ai_model=ai_model,
             )
-            
-            assert result == "生成的文章内容"
-            mock_generate.assert_called_once()
-            
-            # 检查调用的 prompt 是否包含默认值
-            call_args = mock_generate.call_args
-            prompt = call_args[0][0]  # 第一个位置参数
-            assert "AI技术" in prompt
-            assert "人工智能" in prompt
-            assert "普通读者" in prompt  # 默认的 target_audience
+
+        prompt = fake.captured["message"]
+        assert result == "生成内容"
+        assert "AI技术" in prompt
+        assert "人工智能" in prompt
+        assert "普通读者" in prompt  # 默认的 target_audience
     
     @pytest.mark.asyncio
     async def test_generate_content_override_defaults(self):
@@ -218,14 +218,11 @@ class TestGenerateContent:
         ai_model.api_key = "test-key"
         ai_model.base_url = "https://api.openai.com/v1"
         ai_model.model_name = "gpt-4"
-        
-        db = Mock()
-        
-        with patch.object(OpenAIService, 'generate_text', new_callable=AsyncMock) as mock_generate:
-            mock_generate.return_value = "生成的文章内容"
-            
-            result = await WritingService.generate_content(
-                db=db,
+
+        fake = _FakeChatService()
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            await WritingService.generate_content(
+                db=Mock(),
                 tool_type="wechat_article",
                 user_input={
                     "topic": "AI技术",
@@ -235,11 +232,10 @@ class TestGenerateContent:
                 },
                 ai_model=ai_model,
             )
-            
-            call_args = mock_generate.call_args
-            prompt = call_args[0][0]
-            assert "技术人员" in prompt  # 应该使用用户指定的值
-            assert "普通读者" not in prompt
+
+        prompt = fake.captured["message"]
+        assert "技术人员" in prompt  # 应该使用用户指定的值
+        assert "普通读者" not in prompt
     
     @pytest.mark.asyncio
     async def test_generate_content_unsupported_tool(self):

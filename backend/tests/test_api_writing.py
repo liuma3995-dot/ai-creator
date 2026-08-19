@@ -16,59 +16,71 @@ class TestWritingAPI:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["code"] == 200
-        assert isinstance(data["data"], list)
-        assert len(data["data"]) > 0
+        assert isinstance(data, list)
+        assert len(data) > 0
         
         # 验证工具信息结构
-        tool = data["data"][0]
+        tool = data[0]
         assert "tool_type" in tool
         assert "name" in tool
         assert "description" in tool
     
     @patch('app.services.writing_service.WritingService.generate_content')
-    def test_generate_content_success(self, mock_generate, client, auth_headers):
+    def test_generate_content_success(self, mock_generate, client, auth_headers, db_session, test_user):
         """测试成功生成内容"""
-        mock_generate.return_value = {
-            "title": "测试文章",
-            "content": "这是生成的内容",
-            "metadata": {"word_count": 100}
-        }
+        from app.models.user import User
+        from app.core.exceptions import BusinessException
+
+        test_user.credits = 100
+        db_session.commit()
+        model = self._make_model(db_session, test_user)
+        mock_generate.return_value = "这是生成的内容"
         
         response = client.post(
-            "/api/v1/writing/wechat_article/generate",
+            "/api/v1/writing/generate",
             headers=auth_headers,
             json={
-                "prompt": "写一篇关于AI的文章",
+                "tool_type": "wechat_article",
+                "model_id": model.id,
                 "parameters": {
-                    "tone": "professional",
-                    "length": "medium"
+                    "topic": "AI文章",
                 }
             }
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["code"] == 200
-        assert "title" in data["data"]
-        assert "content" in data["data"]
+        assert data["output_content"] == "这是生成的内容"
+        assert data["tool_type"] == "wechat_article"
+        # 非会员生成扣 10 积分
+        refreshed = db_session.query(User).filter(User.id == test_user.id).first()
+        assert refreshed.credits == 90
     
     def test_generate_content_unauthorized(self, client):
         """测试未授权生成内容"""
         response = client.post(
-            "/api/v1/writing/wechat_article/generate",
+            "/api/v1/writing/generate",
             json={
-                "prompt": "写一篇文章"
+                "tool_type": "wechat_article",
             }
         )
         assert response.status_code == 401
     
-    def test_generate_content_invalid_tool_type(self, client, auth_headers):
+    @patch('app.services.writing_service.WritingService.generate_content')
+    def test_generate_content_invalid_tool_type(self, mock_generate, client, auth_headers, db_session, test_user):
         """测试无效的工具类型"""
+        from app.core.exceptions import BusinessException
+
+        test_user.credits = 100
+        db_session.commit()
+        model = self._make_model(db_session, test_user)
+        mock_generate.side_effect = BusinessException("不支持的写作工具类型")
+
         response = client.post(
-            "/api/v1/writing/invalid_tool/generate",
+            "/api/v1/writing/generate",
             headers=auth_headers,
             json={
-                "prompt": "写一篇文章"
+                "tool_type": "invalid_tool",
+                "model_id": model.id,
             }
         )
         assert response.status_code == 400
@@ -76,7 +88,7 @@ class TestWritingAPI:
     def test_generate_content_missing_prompt(self, client, auth_headers):
         """测试缺少提示词"""
         response = client.post(
-            "/api/v1/writing/wechat_article/generate",
+            "/api/v1/writing/generate",
             headers=auth_headers,
             json={}
         )
@@ -144,18 +156,7 @@ class TestWritingAPI:
     def _make_creation_with_model(self, db_session, test_user):
         """构造带模型的创作记录"""
         from app.models.creation import Creation, CreationType
-        from app.models.ai_model import AIModel
-
-        ai_model = AIModel(
-            user_id=test_user.id,
-            name="测试模型",
-            provider="openai",
-            model_name="gpt-4o-mini",
-            api_key="test-key",
-        )
-        db_session.add(ai_model)
-        db_session.commit()
-        db_session.refresh(ai_model)
+        ai_model = self._make_model(db_session, test_user)
 
         creation = Creation(
             user_id=test_user.id,
@@ -170,6 +171,22 @@ class TestWritingAPI:
         db_session.commit()
         db_session.refresh(creation)
         return creation
+
+    def _make_model(self, db_session, test_user):
+        """构造 AI 模型"""
+        from app.models.ai_model import AIModel
+
+        ai_model = AIModel(
+            user_id=test_user.id,
+            name="测试模型",
+            provider="openai",
+            model_name="gpt-4o-mini",
+            api_key="test-key",
+        )
+        db_session.add(ai_model)
+        db_session.commit()
+        db_session.refresh(ai_model)
+        return ai_model
 
     @patch('app.services.writing_service.WritingService.optimize_content')
     def test_optimize_content_multi_types(self, mock_optimize, client, auth_headers, db_session, test_user):
@@ -257,14 +274,15 @@ class TestWritingAPI:
     
     def test_get_creation_detail(self, client, auth_headers, db_session, test_user):
         """测试获取创作详情"""
-        from app.models.creation import Creation
+        from app.models.creation import Creation, CreationType
         
         creation = Creation(
             user_id=test_user.id,
+            creation_type=CreationType.WECHAT_ARTICLE,
             tool_type="wechat_article",
             title="测试文章",
-            content="内容",
-            prompt="提示词",
+            output_content="内容",
+            input_data={"topic": "提示词"},
             status="completed"
         )
         db_session.add(creation)
@@ -277,19 +295,20 @@ class TestWritingAPI:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["data"]["id"] == creation.id
-        assert data["data"]["title"] == "测试文章"
+        assert data["id"] == creation.id
+        assert data["title"] == "测试文章"
     
     def test_update_creation(self, client, auth_headers, db_session, test_user):
         """测试更新创作内容"""
-        from app.models.creation import Creation
+        from app.models.creation import Creation, CreationType
         
         creation = Creation(
             user_id=test_user.id,
+            creation_type=CreationType.WECHAT_ARTICLE,
             tool_type="wechat_article",
             title="原标题",
-            content="原内容",
-            prompt="提示词",
+            output_content="原内容",
+            input_data={"topic": "提示词"},
             status="completed"
         )
         db_session.add(creation)
@@ -306,19 +325,20 @@ class TestWritingAPI:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["data"]["title"] == "新标题"
-        assert data["data"]["content"] == "新内容"
+        assert data["title"] == "新标题"
+        assert data["output_content"] == "新内容"
     
     def test_delete_creation(self, client, auth_headers, db_session, test_user):
         """测试删除创作"""
-        from app.models.creation import Creation
+        from app.models.creation import Creation, CreationType
         
         creation = Creation(
             user_id=test_user.id,
+            creation_type=CreationType.WECHAT_ARTICLE,
             tool_type="wechat_article",
             title="测试",
-            content="内容",
-            prompt="提示词",
+            output_content="内容",
+            input_data={"topic": "提示词"},
             status="completed"
         )
         db_session.add(creation)
@@ -333,16 +353,17 @@ class TestWritingAPI:
     
     def test_list_creations(self, client, auth_headers, db_session, test_user):
         """测试获取创作列表"""
-        from app.models.creation import Creation
+        from app.models.creation import Creation, CreationType
         
         # 创建多个创作记录
         for i in range(5):
             creation = Creation(
                 user_id=test_user.id,
+                creation_type=CreationType.WECHAT_ARTICLE,
                 tool_type="wechat_article",
                 title=f"测试文章{i}",
-                content=f"内容{i}",
-                prompt="提示词",
+                output_content=f"内容{i}",
+                input_data={"topic": "提示词"},
                 status="completed"
             )
             db_session.add(creation)
@@ -351,35 +372,38 @@ class TestWritingAPI:
         response = client.get(
             "/api/v1/creations",
             headers=auth_headers,
-            params={"page": 1, "page_size": 10}
+            params={"skip": 0, "limit": 10}
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["code"] == 200
-        assert len(data["data"]["items"]) == 5
-        assert data["data"]["total"] == 5
+        assert len(data["items"]) == 5
+        assert data["total"] == 5
     
     def test_list_creations_with_filter(self, client, auth_headers, db_session, test_user):
         """测试带过滤条件的创作列表"""
-        from app.models.creation import Creation
+        from app.models.creation import Creation, CreationType
         
         # 创建不同类型的创作
-        Creation(
+        wechat = Creation(
             user_id=test_user.id,
+            creation_type=CreationType.WECHAT_ARTICLE,
             tool_type="wechat_article",
             title="微信文章",
-            content="内容",
-            prompt="提示词",
+            output_content="内容",
+            input_data={"topic": "提示词"},
             status="completed"
         )
-        Creation(
+        xhs = Creation(
             user_id=test_user.id,
+            creation_type=CreationType.XIAOHONGSHU_NOTE,
             tool_type="xiaohongshu_note",
             title="小红书笔记",
-            content="内容",
-            prompt="提示词",
+            output_content="内容",
+            input_data={"topic": "提示词"},
             status="completed"
         )
+        db_session.add(wechat)
+        db_session.add(xhs)
         db_session.commit()
         
         response = client.get(
@@ -389,5 +413,5 @@ class TestWritingAPI:
         )
         assert response.status_code == 200
         data = response.json()
-        assert len(data["data"]["items"]) == 1
-        assert data["data"]["items"][0]["tool_type"] == "wechat_article"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["tool_type"] == "wechat_article"

@@ -53,7 +53,7 @@ class TestActivityCreditLink:
     ):
         # 管理员创建活动
         created = client.post(
-            "/api/v1/operation/activities",
+            "/api/v1/admin/operation/activities",
             json=_activity_payload(),
             headers=admin_headers,
         )
@@ -62,7 +62,7 @@ class TestActivityCreditLink:
 
         # 管理员将活动激活后才能参与
         activated = client.put(
-            f"/api/v1/operation/activities/{activity_id}",
+            f"/api/v1/admin/operation/activities/{activity_id}",
             json={"status": "active"},
             headers=admin_headers,
         )

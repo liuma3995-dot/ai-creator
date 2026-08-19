@@ -100,6 +100,10 @@ npm run dev
 - 测试注册登录功能
 - 测试AI写作功能
 
+> 提示：也可以直接使用一键启动脚本（自动拉起后端/前端/PPTist 并做健康检查）：
+> - Windows：`scripts/start_dev.bat`
+> - Git Bash / WSL：`scripts/start_dev.sh`
+
 ## Docker部署
 
 ### 1. 准备工作
@@ -141,9 +145,9 @@ exit
 ```
 
 ### 4. 访问应用
-- 前端：http://localhost
-- 后端API：http://localhost:8000
-- API文档：http://localhost:8000/docs
+- 前端（Nginx 容器）：http://localhost:8080
+- 后端 API：http://localhost:8000（仅本机/内网可访问，已绑定 127.0.0.1，公网流量统一走 Nginx）
+- API文档：http://localhost:8000/docs（开发环境可用；生产模式默认关闭）
 
 ### 5. 常用Docker命令
 ```bash
@@ -211,13 +215,38 @@ sudo vim .env
 # 重要：修改以下配置
 # - SECRET_KEY: 生成强密码
 # - JWT_SECRET_KEY: 生成强密码
+# - ADMIN_SECRET_KEY: 管理端令牌独立签名密钥（建议单独设置）
+# - PAYMENT_CALLBACK_SECRET / OAUTH_ENCRYPTION_KEY: 支付回调与 OAuth 加密密钥
+# - ADMIN_IP_WHITELIST: 管理接口 IP 白名单（VPN 网段）
+# - ADMIN_INIT_PASSWORD: 管理员初始密码（initdb 使用）
+# - ENABLE_API_DOCS: 生产默认关闭 API 文档，需要时设为 true
+# - DEBUG: 生产必须为 False
 # - 数据库密码
 # - Redis密码
 # - AI服务API密钥
 # - 平台发布配置
 ```
 
-#### 2.3 配置SSL证书（推荐）
+#### 2.3 安全加固配置（生产必做）
+
+以下配置在对外开放前必须完成，否则管理端存在被攻击风险：
+
+1. **生产密钥**：`DEBUG=False` 时，以下密钥若仍为默认值/空值，后端会拒绝启动：
+   - `SECRET_KEY`、`PAYMENT_CALLBACK_SECRET`、`OAUTH_ENCRYPTION_KEY` 必须改为强随机值；
+   - 建议单独设置 `ADMIN_SECRET_KEY`（管理端令牌签名密钥，与用户端隔离）。
+2. **管理员初始密码**：`initdb` 创建管理员时读取 `ADMIN_INIT_PASSWORD`；留空则生成随机强密码仅打印一次，请立即保存并登录修改。
+3. **管理接口 IP 白名单**：
+   - 部署 VPN（推荐 Tailscale / WireGuard），编辑 `frontend/admin_ip_whitelist.conf` 放行 VPN 网段（如 `allow 10.0.0.0/8;`），默认全部拒绝；
+   - 覆盖范围包括 `/api/v1/admin/*` 与 `/api/v1/auth/admin/*`（管理登录/刷新端点同样受白名单保护）；
+   - 后端端口已改为仅绑定 `127.0.0.1`，公网流量统一走 Nginx；
+   - 应用层兜底：`ADMIN_IP_WHITELIST` 环境变量填写白名单（如 `["10.0.0.0/8"]`），留空表示不限制。
+4. **登录限流与锁定**：登录接口已内置 IP 限流与连续失败锁定（默认 5 次失败锁定 15 分钟），管理员登录阈值更严格（每分钟 5 次）。
+5. **HTTPS**：管理端与用户端都必须走 TLS，避免令牌明文传输。
+6. **账号处置规范**：用户管理仅提供“停用/启用”能力，删除功能已从前端下线；后端归档接口仅软删且需二次确认，禁止任何硬删路径。垃圾/违规账号一律停用，用户申请注销时做匿名化（清空邮箱、手机、昵称等个人标识），业务数据保留。
+7. **管理端入口**：公网登录页 `/login` 仅提供用户登录；管理员通过独立隐藏入口 `https://<你的域名>/admin-login` 登录（需在 VPN/白名单网段内）。该入口不在任何导航中出现，建议管理员保存书签。
+8. **API 文档**：生产模式（`DEBUG=False`）默认关闭 `/docs`、`/redoc`、`/openapi.json`；如确需开放，设置 `ENABLE_API_DOCS=true` 并在 Nginx 对文档路径单独加白名单。
+
+#### 2.4 配置SSL证书（推荐）
 ```bash
 # 使用Let's Encrypt
 sudo apt install -y certbot
@@ -230,8 +259,8 @@ sudo certbot certonly --standalone -d your-domain.com
 # /etc/letsencrypt/live/your-domain.com/privkey.pem
 ```
 
-#### 2.4 配置Nginx（如果使用SSL）
-编辑 `nginx/nginx.conf`：
+#### 2.5 配置Nginx（如果使用SSL）
+编辑 `frontend/nginx.conf`：
 ```nginx
 server {
     listen 443 ssl http2;
@@ -250,7 +279,7 @@ server {
 }
 ```
 
-#### 2.5 启动服务
+#### 2.6 启动服务
 ```bash
 # 构建并启动
 sudo docker-compose -f docker-compose.yml up -d --build
@@ -275,5 +304,18 @@ MYSQL_CONTAINER="ai-creator-mysql"
 # 创建备份目录
 mkdir -p $BACKUP_DIR
 
-# 备份数据库
-docker exec $MYSQL_CONTAINER mysqldump -u root -p$
+# 备份数据库（密码通过环境变量 MYSQL_ROOT_PASSWORD 传入，勿写入脚本）
+docker exec $MYSQL_CONTAINER mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" \
+  --single-transaction --routines --triggers ai_creator \
+  | gzip > "$BACKUP_DIR/ai_creator_$DATE.sql.gz"
+
+# 清理 30 天前的备份
+find "$BACKUP_DIR" -name "ai_creator_*.sql.gz" -mtime +30 -delete
+
+echo "备份完成: $BACKUP_DIR/ai_creator_$DATE.sql.gz"
+```
+
+建议配合 cron 每日执行（`crontab -e`）：
+```bash
+0 3 * * * MYSQL_ROOT_PASSWORD=你的密码 /opt/scripts/backup.sh >> /var/log/backup.log 2>&1
+```

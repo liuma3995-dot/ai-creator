@@ -434,6 +434,31 @@ class CouponService:
         user_coupon.order_id = order_id
         coupon.used_quantity = (coupon.used_quantity or 0) + 1
 
+    @staticmethod
+    def restore_order_coupon(
+        db: Session,
+        user_id: int,
+        coupon_code: str,
+        order_id: int,
+    ) -> bool:
+        """订单支付失败/取消/退款时，把关联该订单的已核销券恢复为未使用（幂等）"""
+        coupon = db.query(Coupon).filter(Coupon.code == coupon_code).first()
+        if not coupon:
+            return False
+        user_coupon = db.query(UserCoupon).filter(
+            UserCoupon.user_id == user_id,
+            UserCoupon.coupon_id == coupon.id,
+            UserCoupon.order_id == order_id,
+            UserCoupon.status == CouponStatus.USED,
+        ).first()
+        if not user_coupon:
+            return False
+        user_coupon.status = CouponStatus.UNUSED
+        user_coupon.used_at = None
+        user_coupon.order_id = None
+        coupon.used_quantity = max(0, (coupon.used_quantity or 1) - 1)
+        return True
+
 
 class ReferralService:
     """推荐返利服务"""
@@ -982,6 +1007,9 @@ class OperationService:
             if not credits or int(credits) <= 0:
                 raise BusinessException("邀请注册返利必须设置大于 0 的积分数量")
         for key, value in data.items():
+            # 非空列不允许显式置空：跳过 None，避免数据库 NOT NULL 冲突（D10）
+            if value is None and key in ("reward_type", "credits_rate", "register_credits", "is_enabled"):
+                continue
             setattr(rule, key, value)
         self.db.commit()
         self.db.refresh(rule)

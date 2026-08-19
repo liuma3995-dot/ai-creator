@@ -11,6 +11,7 @@ if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -20,11 +21,16 @@ from starlette.formparsers import MultiPartParser
 from sqlalchemy.exc import SQLAlchemyError, DataError, IntegrityError
 import logging
 
+
+def _json_response(status_code: int, content: dict) -> JSONResponse:
+    """构造 JSON 响应：先经 jsonable_encoder 归一化 Decimal 等类型，避免序列化 500（D11）"""
+    return JSONResponse(status_code=status_code, content=jsonable_encoder(content))
+
 # 在创建应用前设置multipart解析器最大大小 (50MB)
 MultiPartParser.max_part_size = 50 * 1024 * 1024
 MultiPartParser.spool_max_size = 50 * 1024 * 1024
 
-from app.core.config import settings
+from app.core.config import resolve_docs_enabled, settings
 from app.core.database import init_db, SessionLocal
 from app.core.security import decode_token
 from app.models.user import User
@@ -39,12 +45,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 创建FastAPI应用
+# T4：API 文档生产默认关闭（DEBUG=False 时 /docs、/redoc、/openapi.json 不可访问）
+docs_enabled = resolve_docs_enabled(settings.ENABLE_API_DOCS, settings.DEBUG)
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="AI创作者平台API",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if docs_enabled else None,
+    redoc_url="/redoc" if docs_enabled else None,
+    openapi_url="/openapi.json" if docs_enabled else None,
 )
 
 # 配置CORS
@@ -107,32 +116,23 @@ async def admin_audit_middleware(request: Request, call_next):
 async def data_error_handler(request: Request, exc: DataError):
     msg = str(getattr(exc, 'orig', exc))[:200]
     logger.warning(f"DataError on {request.method} {request.url.path}: {msg}")
-    return JSONResponse(
-        status_code=400,
-        content={"code": 400, "message": f"数据格式错误: {msg}", "data": None},
-    )
+    return _json_response(400, {"code": 400, "message": f"数据格式错误: {msg}", "data": None})
 
 @app.exception_handler(IntegrityError)
 async def integrity_error_handler(request: Request, exc: IntegrityError):
     msg = str(getattr(exc, 'orig', exc))[:200]
     logger.warning(f"IntegrityError on {request.method} {request.url.path}: {msg}")
-    return JSONResponse(
-        status_code=400,
-        content={"code": 400, "message": f"数据冲突: {msg}", "data": None},
-    )
+    return _json_response(400, {"code": 400, "message": f"数据冲突: {msg}", "data": None})
 
 @app.exception_handler(SQLAlchemyError)
 async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError):
     # 非 DataError/IntegrityError 类的 SQLAlchemy 异常 —— 兜底
     if isinstance(exc, (DataError, IntegrityError)):
         # 已被上面 handler 接管，不应走到这里
-        return JSONResponse(status_code=500, content={"code": 500, "message": str(exc), "data": None})
+        return _json_response(500, {"code": 500, "message": str(exc), "data": None})
     msg = str(exc)[:200]
     logger.exception(f"SQLAlchemyError on {request.method} {request.url.path}")
-    return JSONResponse(
-        status_code=500,
-        content={"code": 500, "message": f"数据库错误: {msg}", "data": None},
-    )
+    return _json_response(500, {"code": 500, "message": f"数据库错误: {msg}", "data": None})
 
 # 挂载静态文件目录
 import os
@@ -145,26 +145,26 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """HTTP异常处理"""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
+    return _json_response(
+        exc.status_code,
+        {
             "code": exc.status_code,
             "message": exc.detail,
-            "data": None
-        }
+            "data": None,
+        },
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """请求验证异常处理"""
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
+    return _json_response(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        {
             "code": 422,
             "message": "请求参数验证失败",
-            "data": {"errors": exc.errors()}
-        }
+            "data": {"errors": exc.errors()},
+        },
     )
 
 
@@ -172,13 +172,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def general_exception_handler(request: Request, exc: Exception):
     """通用异常处理"""
     logger.error(f"未处理的异常: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
+    return _json_response(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        {
             "code": 500,
             "message": "服务器内部错误",
-            "data": None
-        }
+            "data": None,
+        },
     )
 
 
@@ -187,6 +187,10 @@ async def general_exception_handler(request: Request, exc: Exception):
 async def startup_event():
     """应用启动时执行"""
     logger.info("应用启动中...")
+
+    # 生产环境安全校验：默认/空密钥拒绝启动（T3）
+    from app.core.config import validate_production_settings
+    validate_production_settings()
     
     # 创建上传目录
     upload_dir = Path(settings.UPLOAD_DIR)
@@ -401,6 +405,13 @@ app.include_router(
     traffic.router,
     prefix=f"{settings.API_V1_PREFIX}/traffic",
     tags=["流量统计"]
+)
+
+# 流量统计-管理端（admin 令牌 + IP 白名单保护）
+app.include_router(
+    traffic.admin_router,
+    prefix=f"{settings.API_V1_PREFIX}/admin/traffic",
+    tags=["流量统计-管理端"]
 )
 
 # PPT模板管理

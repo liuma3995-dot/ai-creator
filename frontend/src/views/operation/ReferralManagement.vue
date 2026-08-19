@@ -212,7 +212,7 @@ const saveRule = async () => {
       reward_type: ruleForm.reward_type,
       credits_rate: ruleForm.reward_type === 'credits' ? ruleForm.credits_rate : undefined,
       register_credits: ruleForm.reward_type === 'register_credits' ? ruleForm.register_credits : undefined,
-      coupon_id: ruleForm.reward_type === 'coupon' ? ruleForm.coupon_id : null,
+      coupon_id: ruleForm.reward_type === 'coupon' ? ruleForm.coupon_id : undefined,
       is_enabled: ruleForm.is_enabled,
     })
     ElMessage.success('返利规则已保存')

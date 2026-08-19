@@ -30,6 +30,13 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="status" label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'active' ? 'success' : 'danger'">
+              {{ row.status === 'active' ? '正常' : '已停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="credits" label="积分" width="80" />
         <el-table-column prop="total_creations" label="创作数" width="80" />
         <el-table-column prop="created_at" label="注册时间" width="160" />
@@ -41,8 +48,12 @@
             <el-button type="warning" size="small" @click="handleResetPassword(row)">
              重置密码
             </el-button>
-            <el-button type="danger" size="small" @click="handleDeleteUser(row)">
-              删除
+            <el-button
+              :type="row.status === 'active' ? 'danger' : 'success'"
+              size="small"
+              @click="handleToggleStatus(row)"
+            >
+              {{ row.status === 'active' ? '停用' : '启用' }}
             </el-button>
           </template>
         </el-table-column>
@@ -112,7 +123,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getUserList, getUserDetail, resetUserPassword, deleteUser } from '@/api/adminUsers'
+import { getUserList, getUserDetail, resetUserPassword, toggleUserStatus } from '@/api/adminUsers'
 
 const loading = ref(false)
 const users = ref<any[]>([])
@@ -179,17 +190,23 @@ const handleResetPassword = async (user: any) => {
   }
 }
 
-const handleDeleteUser = async (user: any) => {
+// 停用/启用账号（代替删除）
+const handleToggleStatus = async (user: any) => {
+  const disabling = user.status === 'active'
   try {
-    await ElMessageBox.confirm(`确定要删除用户 "${user.username}" 吗？此操作不可恢复。`, '提示', {
-      type: 'warning',
-    })
-    await deleteUser(user.id)
-    ElMessage.success('用户已删除')
+    await ElMessageBox.confirm(
+      disabling
+        ? `确定要停用用户 "${user.username}" 吗？停用后该用户将无法登录，数据保留，可随时恢复。`
+        : `确定要启用用户 "${user.username}" 吗？启用后该用户可正常登录。`,
+      '提示',
+      { type: disabling ? 'warning' : 'info' }
+    )
+    await toggleUserStatus(user.id, !disabling)
+    ElMessage.success(disabling ? '账号已停用' : '账号已启用')
     loadUsers()
   } catch (error: any) {
     if (error !== 'cancel') {
-      ElMessage.error(error.message || '删除失败')
+      ElMessage.error(error.message || '操作失败')
     }
   }
 }

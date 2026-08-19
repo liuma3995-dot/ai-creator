@@ -3,6 +3,7 @@
 """
 import asyncio
 import logging
+import pytest
 from app.core.database import SessionLocal
 from app.models.oauth_account import OAuthAccount
 from app.services.oauth.encryption import decrypt_credentials
@@ -10,6 +11,9 @@ from app.services.oauth.adapters.doubao import DoubaoAdapter
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# 真实账号联调脚本：依赖真实 MySQL 与豆包 API，默认跳过，需要时手工运行
+pytestmark = pytest.mark.skip(reason="真实账号联调脚本，需手工运行")
 
 
 async def test_doubao_image_generation():

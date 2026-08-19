@@ -9,15 +9,12 @@ import router from '@/router'
 // 不需要登录验证的接口白名单
 const whiteList = [
     '/v1/auth/login',
+    '/v1/auth/admin/login',
     '/v1/auth/register',
     '/v1/auth/refresh',
+    '/v1/auth/admin/refresh',
     '/v1/credit/membership/prices',
     '/v1/traffic/batch',
-    '/v1/traffic/stats',
-    '/v1/traffic/overview',
-    '/v1/traffic/daily',
-    '/v1/traffic/hot-pages',
-    '/v1/traffic/click-events'
 ]
 
 // 创建axios实例
@@ -36,11 +33,17 @@ let isShowingLoginPrompt = false
 service.interceptors.request.use(
     async (config) => {
         const userStore = useUserStore()
-        // 优先从store获取token，如果store中没有，则从localStorage获取
-        let token = userStore.token
-        if (!token) {
-            token = localStorage.getItem('token') || ''
-            // 如果localStorage中有token，同步到store
+        const url = config.url || ''
+        // T1 令牌分离：管理接口使用 admin 令牌，其余使用用户令牌
+        const isAdminApi = url.includes('/v1/admin/')
+        let token = ''
+        if (isAdminApi) {
+            token = userStore.adminToken || localStorage.getItem('adminToken') || ''
+            if (token) {
+                userStore.adminToken = token
+            }
+        } else {
+            token = userStore.token || localStorage.getItem('token') || ''
             if (token) {
                 userStore.token = token
             }
@@ -48,7 +51,6 @@ service.interceptors.request.use(
 
         // 检查是否在白名单中 - 更严格的匹配
         const isWhiteListed = whiteList.some(path => {
-            const url = config.url || ''
             // 匹配完整路径或路径的结尾部分
             return url.includes(path) || url.endsWith(path)
         })
@@ -153,7 +155,12 @@ service.interceptors.response.use(
                     message = error.response.data.detail || error.response.data.message || '请求参数错误'
                     break
                 case 401:
-                    message = error.response.data.detail || error.response.data.message || '未授权，请重新登录'
+                    // 后端 HTTPBearer 无认证头时返回英文 Not authenticated，转为中文提示
+                    message = error.response.data.detail ||
+                        (error.response.data.message === 'Not authenticated'
+                            ? '登录状态已失效，请重新登录'
+                            : error.response.data.message) ||
+                        '未授权，请重新登录'
                     // 只有在非登录页面才触发登出和跳转
                     if (!whiteList.some(path => error.config?.url?.includes(path))) {
                         const userStore = useUserStore()

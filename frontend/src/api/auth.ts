@@ -6,6 +6,11 @@ export function login(data: LoginForm) {
   return request.post<TokenResponse>('/v1/auth/login', data)
 }
 
+// 管理员登录（独立 admin 令牌，T1 安全加固）
+export function adminLogin(data: LoginForm) {
+  return request.post<TokenResponse>('/v1/auth/admin/login', data)
+}
+
 // 用户注册
 export function register(data: RegisterForm) {
   return request.post('/v1/auth/register', data)
@@ -19,6 +24,11 @@ export function getUserInfo() {
 // 刷新Token
 export function refreshToken(refresh_token: string) {
   return request.post<TokenResponse>('/v1/auth/refresh', { refresh_token })
+}
+
+// 刷新管理员Token
+export function adminRefreshToken(refresh_token: string) {
+  return request.post<TokenResponse>('/v1/auth/admin/refresh', { refresh_token })
 }
 
 // 更新用户信息

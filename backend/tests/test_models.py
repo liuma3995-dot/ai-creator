@@ -21,11 +21,13 @@ class TestUserModel:
     
     def test_create_user(self, db_session):
         """测试创建用户"""
+        from app.models.user import UserStatus
+
         user = User(
             username="testuser",
             email="test@example.com",
             password_hash=get_password_hash("password123"),
-            is_active=True
+            status=UserStatus.ACTIVE
         )
         db_session.add(user)
         db_session.commit()
@@ -34,7 +36,7 @@ class TestUserModel:
         assert user.id is not None
         assert user.username == "testuser"
         assert user.email == "test@example.com"
-        assert user.is_active is True
+        assert user.status == "active"
         assert user.created_at is not None
         assert verify_password("password123", user.password_hash)
     
@@ -80,6 +82,8 @@ class TestUserModel:
     
     def test_user_default_values(self, db_session):
         """测试用户默认值"""
+        from app.models.user import UserStatus
+
         user = User(
             username="testuser",
             email="test@example.com",
@@ -89,11 +93,10 @@ class TestUserModel:
         db_session.commit()
         db_session.refresh(user)
         
-        assert user.is_active is True
-        assert user.is_superuser is False
+        assert user.status == UserStatus.ACTIVE
         assert user.credits == 0
-        assert user.membership_level == "free"
-        assert user.membership_expires_at is None
+        assert user.is_member == 0
+        assert user.member_expired_at is None
 
 
 class TestAIModelModel:
@@ -143,12 +146,15 @@ class TestCreationModel:
     
     def test_create_creation(self, db_session, test_user):
         """测试创建创作记录"""
+        from app.models.creation import CreationType
+
         creation = Creation(
             user_id=test_user.id,
+            creation_type=CreationType.WECHAT_ARTICLE,
             tool_type="wechat_article",
             title="测试文章",
-            content="这是测试内容",
-            prompt="写一篇关于AI的文章",
+            output_content="这是测试内容",
+            input_data={"prompt": "写一篇关于AI的文章"},
             status="completed"
         )
         db_session.add(creation)
@@ -163,6 +169,8 @@ class TestCreationModel:
     
     def test_creation_with_metadata(self, db_session, test_user):
         """测试带元数据的创作记录"""
+        from app.models.creation import CreationType
+
         metadata = {
             "word_count": 1000,
             "keywords": ["AI", "技术"],
@@ -170,18 +178,19 @@ class TestCreationModel:
         }
         creation = Creation(
             user_id=test_user.id,
+            creation_type=CreationType.WECHAT_ARTICLE,
             tool_type="wechat_article",
             title="测试文章",
-            content="内容",
-            prompt="提示词",
-            metadata=metadata
+            output_content="内容",
+            input_data={"prompt": "提示词"},
+            extra_data=metadata
         )
         db_session.add(creation)
         db_session.commit()
         db_session.refresh(creation)
         
-        assert creation.metadata == metadata
-        assert creation.metadata["word_count"] == 1000
+        assert creation.extra_data == metadata
+        assert creation.extra_data["word_count"] == 1000
 
 
 class TestPublishModel:
@@ -189,13 +198,16 @@ class TestPublishModel:
     
     def test_create_publish_record(self, db_session, test_user):
         """测试创建发布记录"""
+        from app.models.publish import PublishStatus
+
         record = PublishRecord(
             user_id=test_user.id,
             creation_id=1,
+            platform_account_id=1,
             platform="wechat",
             title="测试文章",
             content="内容",
-            status="pending"
+            status=PublishStatus.PENDING
         )
         db_session.add(record)
         db_session.commit()
@@ -214,17 +226,18 @@ class TestPublishModel:
         record = PublishRecord(
             user_id=test_user.id,
             creation_id=1,
+            platform_account_id=1,
             platform="wechat",
             title="测试",
             content="内容",
             status="success",
-            publish_result=result
+            platform_response=result
         )
         db_session.add(record)
         db_session.commit()
         db_session.refresh(record)
         
-        assert record.publish_result == result
+        assert record.platform_response == result
         assert record.status == "success"
 
 
@@ -236,6 +249,8 @@ class TestCreditModel:
         transaction = CreditTransaction(
             user_id=test_user.id,
             amount=100,
+            balance_before=0,
+            balance_after=100,
             transaction_type="recharge",
             description="充值积分"
         )
@@ -249,20 +264,21 @@ class TestCreditModel:
     
     def test_create_membership_order(self, db_session, test_user):
         """测试创建会员订单"""
+        from app.models.credit import MembershipType, PaymentStatus
+
         order = MembershipOrder(
             user_id=test_user.id,
-            membership_level="premium",
-            duration_days=30,
+            order_no="MO2024TEST",
+            membership_type=MembershipType.MONTHLY,
             amount=99.00,
-            status="pending"
+            payment_status=PaymentStatus.PENDING
         )
         db_session.add(order)
         db_session.commit()
         db_session.refresh(order)
         
         assert order.id is not None
-        assert order.membership_level == "premium"
-        assert order.duration_days == 30
+        assert order.membership_type == "monthly"
         assert order.amount == 99.00
 
 
@@ -336,9 +352,9 @@ class TestOAuthModels:
         """测试创建OAuth账号"""
         account = OAuthAccount(
             user_id=test_user.id,
-            platform_id=test_platform.platform_id,
+            platform=test_platform.platform_id,
             account_name="测试账号",
-            encrypted_cookies="encrypted_data",
+            credentials="encrypted_data",
             is_active=True
         )
         db_session.add(account)
@@ -347,5 +363,5 @@ class TestOAuthModels:
         
         assert account.id is not None
         assert account.user_id == test_user.id
-        assert account.platform_id == test_platform.platform_id
+        assert account.platform == test_platform.platform_id
         assert account.is_active is True

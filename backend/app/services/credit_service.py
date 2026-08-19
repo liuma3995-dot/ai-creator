@@ -351,6 +351,7 @@ class RechargeService:
             amount=final_amount,
             credits=price.credits,
             bonus_credits=price.bonus_credits,
+            coupon_code=order_data.coupon_code,
             payment_method=order_data.payment_method,
             payment_status=PaymentStatus.PENDING
         )
@@ -359,13 +360,6 @@ class RechargeService:
         db.commit()
         db.refresh(order)
 
-        # 标记优惠券已使用
-        if order_data.coupon_code:
-            CouponService.mark_order_coupon_used(
-                db, user_id, order_data.coupon_code, order.id
-            )
-            db.commit()
-        
         return order
     
     @staticmethod
@@ -394,6 +388,23 @@ class RechargeService:
         if not order:
             raise BusinessException("订单不存在")
         
+        # 非成功状态：更新订单状态并恢复被核销的优惠券（若此前已支付后发生退款）
+        if status in ("failed", "cancelled", "refunded"):
+            if order.payment_status != PaymentStatus.PENDING and order.payment_status != PaymentStatus.PAID:
+                return False
+            if status == "refunded":
+                order.payment_status = PaymentStatus.REFUNDED
+            elif status == "cancelled":
+                order.payment_status = PaymentStatus.CANCELLED
+            else:
+                order.payment_status = PaymentStatus.FAILED
+            if order.coupon_code:
+                CouponService.restore_order_coupon(
+                    db, order.user_id, order.coupon_code, order.id
+                )
+            db.commit()
+            return True
+        
         if order.payment_status == PaymentStatus.PAID:
             return True  # 已支付，避免重复处理
         
@@ -402,6 +413,12 @@ class RechargeService:
             order.payment_status = PaymentStatus.PAID
             order.paid_at = datetime.now()
             order.transaction_id = transaction_id
+            
+            # 支付成功后才核销优惠券（下单时不占用）
+            if order.coupon_code:
+                CouponService.mark_order_coupon_used(
+                    db, order.user_id, order.coupon_code, order.id
+                )
             
             # 增加用户积分
             total_credits = order.credits + order.bonus_credits
@@ -513,6 +530,7 @@ class MembershipService:
             amount=final_amount,
             original_amount=price.original_amount,
             discount_amount=(price.original_amount or price.amount) - final_amount,
+            coupon_code=order_data.coupon_code,
             payment_method=order_data.payment_method,
             payment_status=PaymentStatus.PENDING
         )
@@ -521,13 +539,6 @@ class MembershipService:
         db.commit()
         db.refresh(order)
 
-        # 标记优惠券已使用
-        if order_data.coupon_code:
-            CouponService.mark_order_coupon_used(
-                db, user_id, order_data.coupon_code, order.id
-            )
-            db.commit()
-        
         return order
     
     @staticmethod
@@ -556,6 +567,23 @@ class MembershipService:
         if not order:
             raise BusinessException("订单不存在")
         
+        # 非成功状态：更新订单状态并恢复被核销的优惠券（若此前已支付后发生退款）
+        if status in ("failed", "cancelled", "refunded"):
+            if order.payment_status != PaymentStatus.PENDING and order.payment_status != PaymentStatus.PAID:
+                return False
+            if status == "refunded":
+                order.payment_status = PaymentStatus.REFUNDED
+            elif status == "cancelled":
+                order.payment_status = PaymentStatus.CANCELLED
+            else:
+                order.payment_status = PaymentStatus.FAILED
+            if order.coupon_code:
+                CouponService.restore_order_coupon(
+                    db, order.user_id, order.coupon_code, order.id
+                )
+            db.commit()
+            return True
+        
         if order.payment_status == PaymentStatus.PAID:
             return True  # 已支付，避免重复处理
         
@@ -581,6 +609,12 @@ class MembershipService:
             order.payment_status = PaymentStatus.PAID
             order.paid_at = datetime.now()
             order.transaction_id = transaction_id
+            
+            # 支付成功后才核销优惠券（下单时不占用）
+            if order.coupon_code:
+                CouponService.mark_order_coupon_used(
+                    db, order.user_id, order.coupon_code, order.id
+                )
             
             # 更新用户会员状态
             user = db.query(User).filter(User.id == order.user_id).first()

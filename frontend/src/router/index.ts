@@ -13,6 +13,13 @@ const routes: RouteRecordRaw[] = [
         meta: {requiresAuth: false},
     },
     {
+        // 管理端独立登录入口（T1 解耦）：不在导航中展示，管理员通过书签/URL 访问
+        path: '/admin-login',
+        name: 'AdminLogin',
+        component: () => import('@/views/auth/AdminLogin.vue'),
+        meta: {requiresAuth: false},
+    },
+    {
         path: '/register',
         name: 'Register',
         component: () => import('@/views/auth/Register.vue'),

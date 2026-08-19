@@ -60,7 +60,12 @@ class TestAdminUserFullLink:
     ):
         user = self._create_user(mysql_session, "delit", "delpass123")
 
-        deleted = client.delete(f"/api/v1/admin/users/{user.id}", headers=admin_headers)
+        # 归档接口需要二次确认参数（T2）
+        deleted = client.delete(
+            f"/api/v1/admin/users/{user.id}",
+            params={"confirm_user_id": user.id},
+            headers=admin_headers,
+        )
         assert deleted.status_code == 200
 
         mysql_session.expire_all()

@@ -100,6 +100,7 @@ class MembershipOrder(Base):
     amount = Column(Numeric(10, 2), nullable=False, comment="订单金额")
     original_amount = Column(Numeric(10, 2), comment="原价")
     discount_amount = Column(Numeric(10, 2), default=0, comment="优惠金额")
+    coupon_code = Column(String(50), comment="下单使用的优惠券码（支付成功后核销）")
 
     payment_method = Column(String(50), comment="支付方式（如alipay、wechat等）")
     payment_status = Column(
@@ -153,6 +154,7 @@ class RechargeOrder(Base):
     amount = Column(Numeric(10, 2), nullable=False, comment="充值金额")
     credits = Column(Integer, nullable=False, comment="获得积分数")
     bonus_credits = Column(Integer, default=0, comment="赠送积分数")
+    coupon_code = Column(String(50), comment="下单使用的优惠券码（支付成功后核销）")
 
     payment_method = Column(String(50), comment="支付方式（如alipay、wechat等）")
     payment_status = Column(

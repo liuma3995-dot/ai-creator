@@ -3,26 +3,29 @@
 """
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
+    check_admin_ip,
     create_access_token,
     create_refresh_token,
+    decode_token,
     get_current_user,
     get_password_hash,
     verify_password,
 )
 from app.models.credit import TransactionType
 from app.models.operation import ReferralRecord, ReferralStatus
-from app.models.user import User
+from app.models.user import User, UserRole, UserStatus
 from app.schemas.common import success_response
 from app.schemas.user import (
     UserRegister,
     UserLogin,
     UserResponse,
+    UserUpdate,
     PasswordChange,
     PasswordResetRequest,
     PasswordResetConfirm,
@@ -30,6 +33,14 @@ from app.schemas.user import (
 from app.services.credit_service import CreditService
 
 router = APIRouter()
+
+
+def _login_ip(request: Request) -> str:
+    """获取登录来源 IP：仅信任可信反向代理（Nginx）传递的转发头"""
+    forwarded = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 @router.post("/register")
@@ -71,6 +82,8 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)) -> Any:
         email=user_in.email,
         password_hash=get_password_hash(user_in.password),
         nickname=user_in.nickname,
+        role=UserRole.USER,  # T5：注册账号显式固定为普通用户，杜绝提权
+        status=UserStatus.ACTIVE,
     )
     db.add(user)
     db.commit()
@@ -116,10 +129,29 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)) -> Any:
 
 
 @router.post("/login")
-def login(user_in: UserLogin, db: Session = Depends(get_db)) -> Any:
+def login(user_in: UserLogin, request: Request, db: Session = Depends(get_db)) -> Any:
     """
     用户登录（支持用户名或邮箱登录）
     """
+    if settings.LOGIN_RATE_LIMIT_ENABLED:
+        from app.utils.login_limits import (
+            check_login_rate,
+            clear_login_failures,
+            is_login_locked,
+            record_login_failure,
+        )
+        ip = _login_ip(request)
+        if not check_login_rate("user", ip, settings.LOGIN_RATE_LIMIT_PER_MINUTE):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="登录尝试过于频繁，请稍后再试",
+            )
+        if is_login_locked("user", user_in.username):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"账号已锁定，请 {settings.LOGIN_LOCK_MINUTES} 分钟后再试",
+            )
+
     # 查找用户 - 同时支持用户名和邮箱
     user = db.query(User).filter(
         (User.username == user_in.username) | 
@@ -127,6 +159,13 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)) -> Any:
     ).first()
     
     if not user or not verify_password(user_in.password, user.password_hash):
+        if settings.LOGIN_RATE_LIMIT_ENABLED:
+            record_login_failure(
+                "user",
+                user_in.username,
+                settings.LOGIN_FAIL_LOCK_THRESHOLD,
+                settings.LOGIN_LOCK_MINUTES,
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="账号或密码不正确，请重新输入",
@@ -142,6 +181,9 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)) -> Any:
     from datetime import datetime
     user.last_login_at = datetime.utcnow()
     db.commit()
+
+    if settings.LOGIN_RATE_LIMIT_ENABLED:
+        clear_login_failures("user", user_in.username)
     
     # 生成访问令牌和刷新令牌
     access_token = create_access_token(subject=user.id)
@@ -157,25 +199,24 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)) -> Any:
 
 
 @router.post("/refresh")
-def refresh_token(refresh_token: str, db: Session = Depends(get_db)) -> Any:
+def refresh_token(refresh_token: str = Body(..., embed=True), db: Session = Depends(get_db)) -> Any:
     """
     刷新访问令牌
     """
-    from jose import JWTError, jwt
-    
     try:
-        payload = jwt.decode(
-            refresh_token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
+        payload = decode_token(refresh_token, expected_type="refresh")
+    except HTTPException:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的刷新令牌",
         )
-        user_id: int = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="无效的刷新令牌",
-            )
-    except JWTError:
+    if payload.get("token_type") != "user":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的刷新令牌",
+        )
+    user_id: int = payload.get("sub")
+    if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的刷新令牌",
@@ -201,6 +242,142 @@ def refresh_token(refresh_token: str, db: Session = Depends(get_db)) -> Any:
     })
 
 
+@router.post("/admin/login")
+def admin_login(user_in: UserLogin, request: Request, db: Session = Depends(get_db)) -> Any:
+    """
+    管理员登录（仅 role=admin 可登录，签发独立 admin 令牌，T1 安全加固）
+    """
+    # T2 解耦：管理登录仅限白名单 IP（VPN/内网），未配置白名单时不限制
+    if not check_admin_ip(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="管理接口仅限白名单 IP 访问",
+        )
+
+    if settings.LOGIN_RATE_LIMIT_ENABLED:
+        from app.utils.login_limits import (
+            check_login_rate,
+            clear_login_failures,
+            is_login_locked,
+            record_login_failure,
+        )
+        ip = _login_ip(request)
+        if not check_login_rate("admin", ip, settings.ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="登录尝试过于频繁，请稍后再试",
+            )
+        if is_login_locked("admin", user_in.username):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"账号已锁定，请 {settings.LOGIN_LOCK_MINUTES} 分钟后再试",
+            )
+
+    user = db.query(User).filter(
+        (User.username == user_in.username) | (User.email == user_in.username)
+    ).first()
+
+    if not user or not verify_password(user_in.password, user.password_hash):
+        if settings.LOGIN_RATE_LIMIT_ENABLED:
+            record_login_failure(
+                "admin",
+                user_in.username,
+                settings.LOGIN_FAIL_LOCK_THRESHOLD,
+                settings.LOGIN_LOCK_MINUTES,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="账号或密码不正确，请重新输入",
+        )
+
+    if user.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="用户已被禁用",
+        )
+
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅管理员可登录管理端",
+        )
+
+    from datetime import datetime
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+
+    if settings.LOGIN_RATE_LIMIT_ENABLED:
+        clear_login_failures("admin", user_in.username)
+
+    access_token = create_access_token(subject=user.id, token_type="admin")
+    refresh_token = create_refresh_token(subject=user.id, token_type="admin")
+
+    return success_response(data={
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.ADMIN_TOKEN_EXPIRE_MINUTES * 60,
+        "user": UserResponse.model_validate(user).model_dump(),
+    })
+
+
+@router.post("/admin/refresh")
+def admin_refresh_token(
+    request: Request,
+    refresh_token: str = Body(..., embed=True),
+    db: Session = Depends(get_db),
+) -> Any:
+    """
+    刷新管理员令牌（仅接受 admin 作用域刷新令牌）
+    """
+    # T2 解耦：管理刷新仅限白名单 IP
+    if not check_admin_ip(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="管理接口仅限白名单 IP 访问",
+        )
+    try:
+        payload = decode_token(refresh_token, expected_type="refresh")
+    except HTTPException:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的刷新令牌",
+        )
+    if payload.get("token_type") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的刷新令牌",
+        )
+    user_id: int = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的刷新令牌",
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or user.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户不存在或已被禁用",
+        )
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅管理员可刷新管理端令牌",
+        )
+
+    new_access_token = create_access_token(subject=user.id, token_type="admin")
+    new_refresh_token = create_refresh_token(subject=user.id, token_type="admin")
+
+    return success_response(data={
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.ADMIN_TOKEN_EXPIRE_MINUTES * 60,
+    })
+
+
 @router.get("/me")
 def get_current_user_info(
     current_user: User = Depends(get_current_user),
@@ -213,22 +390,17 @@ def get_current_user_info(
 
 @router.put("/me")
 def update_current_user(
-    user_update: dict,
+    user_update: UserUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Any:
     """
     更新当前用户信息
     """
-    if "nickname" in user_update:
-        current_user.nickname = user_update["nickname"]
-    
-    if "avatar" in user_update:
-        current_user.avatar = user_update["avatar"]
-    
-    if "phone" in user_update:
-        current_user.phone = user_update["phone"]
-    
+    update_data = user_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(current_user, key, value)
+
     db.commit()
     db.refresh(current_user)
     

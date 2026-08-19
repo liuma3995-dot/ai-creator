@@ -23,7 +23,7 @@ class TestUserListAPI:
 
     def test_list_requires_admin(self, client, auth_headers):
         r = client.get("/api/v1/admin/users/list", headers=auth_headers)
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_list_anonymous(self, client):
         r = client.get("/api/v1/admin/users/list")
@@ -143,15 +143,27 @@ class TestDeleteUserAPI:
 
     def test_delete_user_soft(self, client, admin_headers, db_session):
         user = _make_user(db_session, "deluser", "del@example.com")
-        r = client.delete(f"/api/v1/admin/users/{user.id}", headers=admin_headers)
+        r = client.delete(
+            f"/api/v1/admin/users/{user.id}",
+            params={"confirm_user_id": user.id},
+            headers=admin_headers,
+        )
         assert r.status_code == 200
         updated = db_session.query(User).filter(User.id == user.id).first()
         assert updated.deleted_at is not None
 
     def test_delete_self_forbidden(self, client, admin_headers, admin_user):
-        r = client.delete(f"/api/v1/admin/users/{admin_user.id}", headers=admin_headers)
+        r = client.delete(
+            f"/api/v1/admin/users/{admin_user.id}",
+            params={"confirm_user_id": admin_user.id},
+            headers=admin_headers,
+        )
         assert r.status_code == 400
 
     def test_delete_user_not_found(self, client, admin_headers):
-        r = client.delete("/api/v1/admin/users/99999", headers=admin_headers)
+        r = client.delete(
+            "/api/v1/admin/users/99999",
+            params={"confirm_user_id": 99999},
+            headers=admin_headers,
+        )
         assert r.status_code == 404

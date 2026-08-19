@@ -24,6 +24,8 @@ sys.path.insert(0, str(project_root))
 from app.core import config
 original_db_url = config.settings.DATABASE_URL
 config.settings.DATABASE_URL = "sqlite:///./test.db"
+# 测试环境关闭登录限流/锁定，避免跨用例相互污染（T4 专项测试自行开启）
+config.settings.LOGIN_RATE_LIMIT_ENABLED = False
 
 from app.core.database import Base, get_db
 from app.models.user import User
@@ -158,7 +160,6 @@ def test_platform(db_session):
     platform = PlatformConfig(
         platform_id="test_platform",
         platform_name="测试平台",
-        description="用于测试的平台",
         oauth_config={
             "auth_url": "https://test.example.com",
             "login_selectors": {
@@ -250,7 +251,7 @@ def second_user_headers(client, db_session):
 def admin_headers(client, admin_user):
     """获取管理员认证头"""
     response = client.post(
-        "/api/v1/auth/login",
+        "/api/v1/auth/admin/login",
         json={
             "username": admin_user.username,
             "password": "adminpass123",

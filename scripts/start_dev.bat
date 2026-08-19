@@ -159,6 +159,7 @@ echo ==========================================================
 echo   Debug entries
 echo ==========================================================
 echo   Browser:      http://localhost:5173
+echo   Admin login:  http://localhost:5173/admin-login
 echo   Swagger:      http://localhost:8000/docs
 echo   Test account: admin / admin123456
 
@@ -173,6 +174,7 @@ if defined LAN_IP (
     echo.
     echo   Mobile - phone on same Wi-Fi:
     echo     Frontend:  http://%LAN_IP%:5173
+    echo     Admin:     http://%LAN_IP%:5173/admin-login
     echo     Swagger:   http://%LAN_IP%:8000/docs
 ) else (
     echo.

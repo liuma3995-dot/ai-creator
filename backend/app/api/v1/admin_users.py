@@ -252,24 +252,22 @@ def toggle_model_status(
     )
 
 
-@router.delete("/{user_id}")
-def delete_user(
+@router.post("/{user_id}/toggle-status")
+def toggle_user_status(
     user_id: int,
+    is_active: bool,
     current_user: models.User = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ) -> Any:
     """
-    删除用户（软删除）
-    
+    停用/启用用户账号（日常管理手段，代替删除）
+
     **权限要求**: 管理员
-    
-    **警告**: 此操作会删除用户及其所有相关数据
-    
-    **参数**:
-    - user_id: 用户 ID
-    
-    **返回**:
-    - 删除结果
+
+    **说明**:
+    - 停用后用户无法登录、无法调用任何接口，数据保留可恢复；
+    - 不修改 deleted_at，与归档互不干扰；
+    - 禁止停用/启用自己的账号。
     """
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
@@ -277,17 +275,82 @@ def delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="用户不存在"
         )
-    
-    # 不能删除自己
+
     if user.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="不能删除自己的账号"
+            detail="不能停用/启用自己的账号"
+        )
+
+    user.status = models.UserStatus.ACTIVE if is_active else models.UserStatus.INACTIVE
+    db.commit()
+    db.refresh(user)
+
+    return success_response(
+        data={
+            "id": user.id,
+            "username": user.username,
+            "status": user.status,
+        },
+        message="账号已启用" if is_active else "账号已停用",
+    )
+
+
+@router.delete("/{user_id}")
+def delete_user(
+    user_id: int,
+    confirm_user_id: int,
+    current_user: models.User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+) -> Any:
+    """
+    归档用户（软删除兜底，前端已下线，仅限数据库级兜底操作）
+    
+    **权限要求**: 管理员
+    
+    **参数**:
+    - user_id: 用户 ID
+    - confirm_user_id: 二次确认参数，必须等于 user_id，否则拒绝执行
+    
+    **返回**:
+    - 归档结果
+
+    **说明**:
+    - 仅软删除（deleted_at + status=inactive），禁止任何硬删除；
+    - 关联数据（积分、订单、推荐、创作等）全部保留，可恢复；
+    - 禁止归档管理员账号，禁止归档自己。
+    """
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="用户不存在"
+        )
+
+    # 二次确认：防止误调接口
+    if confirm_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="确认参数不一致，已取消归档"
         )
     
-    # 软删除
+    # 不能归档自己
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不能归档自己的账号"
+        )
+
+    # 禁止归档管理员账号
+    if user.role == models.UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不允许归档管理员账号"
+        )
+    
+    # 仅软删除（归档），绝不硬删
     user.deleted_at = datetime.now()
-    user.status = "inactive"
+    user.status = models.UserStatus.INACTIVE
     db.commit()
     
-    return success_response(message="用户已成功删除")
+    return success_response(message="用户已归档（软删除），数据保留可恢复")

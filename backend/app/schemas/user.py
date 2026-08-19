@@ -22,6 +22,7 @@ class UserRegister(BaseModel):
         return v
     
     class Config:
+        extra = "forbid"  # T5：拒绝 role 等未知字段注入
         json_schema_extra = {
             "example": {
                 "username": "testuser",
@@ -109,6 +110,7 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=20, description="手机号")
     
     class Config:
+        extra = "forbid"  # T5：资料更新仅允许白名单字段
         json_schema_extra = {
             "example": {
                 "nickname": "新昵称",

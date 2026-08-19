@@ -7,6 +7,10 @@ import asyncio
 import httpx
 import re
 import os
+import pytest
+
+# 真实 Cookie 联调脚本：依赖 WECHAT_COOKIES 环境变量与真实微信接口，默认跳过
+pytestmark = pytest.mark.skip(reason="真实 Cookie 联调脚本，需手工运行")
 
 # 测试用的 Cookie - 需要手动设置或从环境变量读取
 # 你可以将有效的 Cookie 粘贴到这里进行测试

@@ -84,7 +84,7 @@ class TestActivityAPI:
 
     def test_create_activity_requires_admin(self, client, auth_headers):
         r = client.post("/api/v1/admin/operation/activities", json=_activity_payload(), headers=auth_headers)
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_create_activity_as_admin(self, client, admin_headers):
         r = client.post("/api/v1/admin/operation/activities", json=_activity_payload(), headers=admin_headers)
@@ -103,8 +103,8 @@ class TestActivityAPI:
         assert r.status_code == 200
         assert r.json()["data"]["items"] == []
 
-    def test_get_activity_not_found(self, client, admin_headers):
-        r = client.get("/api/v1/operation/activities/99999", headers=admin_headers)
+    def test_get_activity_not_found(self, client, auth_headers):
+        r = client.get("/api/v1/operation/activities/99999", headers=auth_headers)
         assert r.status_code == 404
 
     def test_get_activity_detail(self, client, db_session, auth_headers):
@@ -121,7 +121,7 @@ class TestActivityAPI:
             json={"title": "普通用户改"},
             headers=auth_headers,
         )
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_update_activity_as_admin(self, client, db_session, admin_headers):
         activity = _make_activity(db_session)
@@ -185,7 +185,7 @@ class TestCouponAPI:
 
     def test_create_coupon_requires_admin(self, client, auth_headers):
         r = client.post("/api/v1/admin/operation/coupons", json=_coupon_payload(), headers=auth_headers)
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_create_coupon_as_admin(self, client, admin_headers):
         r = client.post("/api/v1/admin/operation/coupons", json=_coupon_payload(), headers=admin_headers)
@@ -203,8 +203,8 @@ class TestCouponAPI:
         assert r.status_code == 200
         assert r.json()["data"]["items"] == []
 
-    def test_get_coupon_not_found(self, client, admin_headers):
-        r = client.get("/api/v1/operation/coupons/99999", headers=admin_headers)
+    def test_get_coupon_not_found(self, client, auth_headers):
+        r = client.get("/api/v1/operation/coupons/99999", headers=auth_headers)
         assert r.status_code == 404
 
     def test_receive_coupon_and_duplicate(self, client, db_session, auth_headers):
@@ -303,11 +303,23 @@ class TestCouponAPI:
         order = r.json()["data"]
         # 10 元套餐 9 折 = 9.00
         assert float(order["amount"]) == 9.0
+        # D9：下单不核销，支付成功后才核销
         uc = db_session.query(UserCoupon).filter(
-            UserCoupon.order_id == order["id"]
+            UserCoupon.coupon_id == coupon.id
         ).first()
         assert uc is not None
+        assert uc.status == CouponStatus.UNUSED
+        assert uc.order_id is None
+
+        r2 = client.post(
+            "/api/v1/credit/payment/callback",
+            json={"order_type": "recharge", "order_no": order["order_no"]},
+            headers=auth_headers,
+        )
+        assert r2.status_code == 200
+        db_session.refresh(uc)
         assert uc.status == CouponStatus.USED
+        assert uc.order_id == order["id"]
 
     def test_membership_order_with_coupon_discount(self, client, db_session, auth_headers):
         coupon = _make_coupon(
@@ -386,7 +398,7 @@ class TestCouponAPI:
             json={"user_ids": [test_user.id]},
             headers=auth_headers,
         )
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_issue_coupon_not_found(self, client, admin_headers):
         r = client.post(
@@ -459,7 +471,7 @@ class TestCouponAPI:
     def test_void_coupon_requires_admin(self, client, db_session, auth_headers):
         coupon = _make_coupon(db_session, code="VOID11")
         r = client.post(f"/api/v1/admin/operation/coupons/{coupon.id}/void", headers=auth_headers)
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_void_coupon_not_found(self, client, admin_headers):
         r = client.post("/api/v1/admin/operation/coupons/99999/void", headers=admin_headers)
@@ -591,7 +603,7 @@ class TestReferralAPI:
             json={},
             headers=auth_headers,
         )
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_approve_referrals_batch(
         self, client, db_session, admin_headers, test_user
@@ -644,7 +656,7 @@ class TestStatisticsAPI:
 
     def test_statistics_requires_admin(self, client, auth_headers):
         r = client.get("/api/v1/admin/operation/statistics", headers=auth_headers)
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_statistics_as_admin(self, client, admin_headers, db_session):
         from app.models.user import User
@@ -657,7 +669,7 @@ class TestStatisticsAPI:
 
     def test_dashboard_requires_admin(self, client, auth_headers):
         r = client.get("/api/v1/admin/operation/dashboard", headers=auth_headers)
-        assert r.status_code == 403
+        assert r.status_code in (401, 403)
 
     def test_dashboard_as_admin(self, client, admin_headers, db_session):
         from app.models.user import User

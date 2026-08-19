@@ -4,6 +4,10 @@
 import asyncio
 import json
 import httpx
+import pytest
+
+# 真实账号联调脚本：需要传入真实 Cookie，默认跳过，需要时手工运行
+pytestmark = pytest.mark.skip(reason="真实账号联调脚本，需手工运行")
 
 async def test_doubao_cookies(cookies_str: str):
     """测试豆包 Cookie 是否有效"""

@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120  # 2小时
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # 7天
+    # 管理端令牌（T1 安全加固）：独立、更短有效期，生产建议单独设置 ADMIN_SECRET_KEY
+    ADMIN_TOKEN_EXPIRE_MINUTES: int = 30  # 管理端访问令牌30分钟
+    ADMIN_SECRET_KEY: Optional[str] = None  # 为空时与 SECRET_KEY 共用，生产建议独立设置
+    ADMIN_IP_WHITELIST: list = Field(
+        default_factory=list,
+        description="管理接口IP白名单（如 ['1.2.3.4', '10.0.0.0/8']），空列表表示不限制",
+    )
     
     # CORS配置
     CORS_ORIGINS: list = Field(
@@ -121,6 +128,12 @@ class Settings(BaseSettings):
     # 限流配置
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 60
+    # 登录限流与失败锁定（T4）
+    LOGIN_RATE_LIMIT_ENABLED: bool = True
+    LOGIN_RATE_LIMIT_PER_MINUTE: int = 10
+    ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE: int = 5
+    LOGIN_FAIL_LOCK_THRESHOLD: int = 5
+    LOGIN_LOCK_MINUTES: int = 15
     
     # 平台发布配置
     WECHAT_APP_ID: Optional[str] = None
@@ -137,6 +150,8 @@ class Settings(BaseSettings):
         default=True,
         description="启动时自动创建数据库表"
     )
+    # API 文档开关（T4）：None = 跟随 DEBUG（开发开、生产关）；true/false 强制开/关
+    ENABLE_API_DOCS: Optional[bool] = None
 
 # 获取.env文件路径
 _env_file_path = get_env_file_path()
@@ -153,3 +168,40 @@ class _Settings(Settings):
     )
 
 settings = _Settings()
+
+
+# 已知不安全默认值：生产环境（DEBUG=False）检测到这些值直接拒绝启动（T3）
+INSECURE_DEFAULT_SECRETS = {
+    "your-secret-key-change-in-production",
+    "change-me-payment-callback-secret",
+    "your-oauth-encryption-key-change-in-production",
+}
+
+
+def validate_production_settings(cfg: Settings = settings) -> None:
+    """生产环境安全校验：默认/空密钥直接拒绝启动，避免弱配置上线（T3）"""
+    if cfg.DEBUG:
+        return
+    insecure = {
+        "SECRET_KEY": cfg.SECRET_KEY,
+        "PAYMENT_CALLBACK_SECRET": cfg.PAYMENT_CALLBACK_SECRET,
+        "OAUTH_ENCRYPTION_KEY": cfg.OAUTH_ENCRYPTION_KEY,
+    }
+    bad = [
+        name
+        for name, value in insecure.items()
+        if not value or value in INSECURE_DEFAULT_SECRETS
+    ]
+    if bad:
+        raise ValueError(
+            "生产环境检测到未配置的安全密钥（{}），请在 .env 中设置强随机值后重新启动".format(
+                ", ".join(bad)
+            )
+        )
+
+
+def resolve_docs_enabled(enable: Optional[bool], debug: bool) -> bool:
+    """API 文档开关解析（T4）：None 跟随 DEBUG，显式值优先"""
+    if enable is not None:
+        return enable
+    return debug

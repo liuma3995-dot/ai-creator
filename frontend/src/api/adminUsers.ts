@@ -85,8 +85,8 @@ export function toggleModelStatus(
 }
 
 /**
- * 删除用户
+ * 停用/启用用户账号（代替删除，日常管理手段）
  */
-export function deleteUser(userId: number) {
-  return request.delete(`/v1/admin/users/${userId}`)
+export function toggleUserStatus(userId: number, isActive: boolean) {
+  return request.post(`/v1/admin/users/${userId}/toggle-status`, null, { params: { is_active: isActive } })
 }

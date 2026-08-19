@@ -3,9 +3,14 @@
 """
 import asyncio
 import httpx
+import pytest
 from app.core.database import SessionLocal
 from app.models.oauth_account import OAuthAccount
 from app.services.oauth.encryption import decrypt_credentials
+
+
+# 真实账号联调脚本：依赖真实 MySQL 与豆包网站，默认跳过，需要时手工运行
+pytestmark = pytest.mark.skip(reason="真实账号联调脚本，需手工运行")
 
 
 async def test_doubao_account():

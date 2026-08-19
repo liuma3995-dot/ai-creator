@@ -52,19 +52,19 @@ class TestTrafficSyncLink:
         assert mysql_session.query(UserEvent).count() == 1
 
         # 4. 查询接口口径正确
-        overview = client.get("/api/v1/traffic/overview", headers=admin_headers)
+        overview = client.get("/api/v1/admin/traffic/overview", headers=admin_headers)
         assert overview.status_code == 200
         overview_data = overview.json()["data"]
         assert overview_data["week_pv"] >= 2
         assert overview_data["month_pv"] >= 2
 
-        hot_pages = client.get("/api/v1/traffic/hot-pages", headers=admin_headers)
+        hot_pages = client.get("/api/v1/admin/traffic/hot-pages", headers=admin_headers)
         assert hot_pages.status_code == 200
         paths = [item["path"] for item in hot_pages.json()["data"]]
         assert "/home" in paths
         assert "/pricing" in paths
 
-        daily = client.get("/api/v1/traffic/daily", headers=admin_headers)
+        daily = client.get("/api/v1/admin/traffic/daily", headers=admin_headers)
         assert daily.status_code == 200
         assert any(item["pv"] >= 1 for item in daily.json()["data"])
 

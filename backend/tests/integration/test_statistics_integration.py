@@ -141,7 +141,7 @@ class TestStatisticsAggregation:
     ):
         self._seed_data(mysql_session)
 
-        r = client.get("/api/v1/operation/statistics", headers=admin_headers)
+        r = client.get("/api/v1/admin/operation/statistics", headers=admin_headers)
         assert r.status_code == 200
         data = r.json()["data"]
 
@@ -184,7 +184,7 @@ class TestStatisticsAggregation:
     ):
         self._seed_data(mysql_session)
 
-        r = client.get("/api/v1/operation/dashboard", headers=admin_headers)
+        r = client.get("/api/v1/admin/operation/dashboard", headers=admin_headers)
         assert r.status_code == 200
         data = r.json()["data"]
 
@@ -198,7 +198,7 @@ class TestStatisticsAggregation:
     ):
         self._seed_data(mysql_session)
 
-        r = client.get("/api/v1/operation/statistics", headers=admin_headers)
+        r = client.get("/api/v1/admin/operation/statistics", headers=admin_headers)
         data = r.json()["data"]
 
         # u3（40 天前注册）不计入 30 天窗口
