@@ -44,6 +44,8 @@ class ViralAnalyzerService:
         cls,
         request: AnalyzeRequest,
         ai_model=None,
+        db: Session = None,
+        user_id: Optional[int] = None,
     ) -> AnalyzeResponse:
         """
         分析爆款内容
@@ -51,6 +53,8 @@ class ViralAnalyzerService:
         Args:
             request: 分析请求
             ai_model: AI模型配置
+            db: 数据库会话（传入时保存创作记录）
+            user_id: 用户ID
             
         Returns:
             AnalyzeResponse
@@ -78,11 +82,86 @@ class ViralAnalyzerService:
                 )
             
             response = await service.chat(prompt)
-            return cls._parse_analyze_response(response.content, request.title or "")
+            result = cls._parse_analyze_response(response.content, request.title or "")
+
+            # 落库为创作记录，确保历史记录可见、使用次数可统计
+            if db is not None and user_id is not None:
+                new_creation = Creation(
+                    user_id=user_id,
+                    creation_type=CreationType.WECHAT_ARTICLE,
+                    tool_type="viral_analyze",
+                    title=result.title or "爆款分析报告",
+                    input_data={
+                        "content": request.content,
+                        "title": request.title,
+                        "platform": request.platform,
+                    },
+                    output_content=cls._format_analyze_markdown(result),
+                    status=CreationStatus.COMPLETED,
+                )
+                db.add(new_creation)
+                db.commit()
+                db.refresh(new_creation)
+                result.creation_id = new_creation.id
+
+            return result
             
         except Exception as e:
             logger.error(f"爆款分析失败: {e}")
             raise Exception(f"爆款分析失败: {str(e)}")
+
+    @classmethod
+    def _format_analyze_markdown(cls, result: AnalyzeResponse) -> str:
+        """将分析结果格式化为 Markdown，供历史记录展示"""
+        lines = ["# 爆款分析报告", ""]
+        lines += [
+            "## 基本信息",
+            "",
+            f"- **文章标题**: {result.title or '未知'}",
+            f"- **内容类别**: {result.category.value if isinstance(result.category, ContentCategory) else result.category}",
+            f"- **爆款指数**: {result.viral_score}/100",
+            f"- **语气风格**: {result.tone or '未知'}",
+            f"- **目标受众**: {result.target_audience or '未知'}",
+            "",
+        ]
+        if result.emotional_triggers:
+            lines += ["## 情感触发点", ""]
+            lines += [f"- {t}" for t in result.emotional_triggers]
+            lines += [""]
+        if result.viral_elements:
+            lines += ["## 爆款元素分析", ""]
+            for elem in result.viral_elements:
+                lines += [
+                    f"### {elem.name} ({elem.score}分)",
+                    "",
+                    elem.description,
+                    "",
+                ]
+                if elem.examples:
+                    lines += ["**示例:**", ""]
+                    lines += [f"> {ex}" for ex in elem.examples]
+                    lines += [""]
+        if result.structure:
+            lines += [
+                "## 结构分析",
+                "",
+                f"- **开头钩子**: {result.structure.opening_hook or '未知'}",
+                f"- **结尾CTA**: {result.structure.closing_cta or '未知'}",
+                f"- **过渡风格**: {result.structure.transition_style or '未知'}",
+                "",
+            ]
+        if result.writing_techniques:
+            lines += ["## 写作技巧", ""]
+            lines += [f"- {t}" for t in result.writing_techniques]
+            lines += [""]
+        if result.keywords:
+            lines += ["## 核心关键词", ""]
+            lines += [f"- {k}" for k in result.keywords]
+            lines += [""]
+        if result.improvement_suggestions:
+            lines += ["## 改进建议", ""]
+            lines += [f"- {s}" for s in result.improvement_suggestions]
+        return "\n".join(lines).strip()
     
     @classmethod
     async def imitate(

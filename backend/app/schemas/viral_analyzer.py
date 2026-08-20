@@ -46,6 +46,7 @@ class AnalyzeResponse(BaseModel):
     title: str = Field(..., description="文章标题")
     category: ContentCategory = Field(..., description="内容类别")
     viral_score: int = Field(..., description="爆款指数 (0-100)")
+    creation_id: Optional[int] = Field(None, description="创作记录ID（落库后返回）")
     
     # 风格分析
     tone: str = Field(..., description="语气风格")

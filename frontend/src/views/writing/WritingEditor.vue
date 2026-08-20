@@ -18,7 +18,6 @@
           </div>
           <div class="header-right">
             <el-button :icon="EditPen" @click="showTitleDialog = true">标题助手</el-button>
-            <el-button :icon="Picture" @click="openImagePicker">选择配图</el-button>
           </div>
         </div>
       </template>
@@ -78,17 +77,6 @@
               </div>
             </div>
 
-            <!-- 封面图预览 -->
-            <div v-if="coverImage" class="cover-image-preview">
-              <img :src="coverImage.thumb_url || coverImage.url" :alt="coverImage.alt" />
-              <div class="cover-actions">
-                <el-button size="small" type="danger" text @click="coverImage = null">
-                  <el-icon><Delete /></el-icon>
-                  移除封面
-                </el-button>
-              </div>
-            </div>
-
             <div v-if="!currentCreation" class="empty-preview">
               <el-empty description="请先填写信息并生成内容" />
             </div>
@@ -143,12 +131,6 @@
       </el-tabs>
     </el-dialog>
 
-    <!-- 图片选择器 -->
-    <ImagePicker
-      ref="imagePickerRef"
-      :content-for-suggest="markdownContent"
-      @select="handleImageSelect"
-    />
   </div>
 </template>
 
@@ -156,24 +138,22 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Download, MagicStick, RefreshRight, EditPen, Picture, Delete } from '@element-plus/icons-vue'
+import { ArrowLeft, Download, MagicStick, RefreshRight, EditPen } from '@element-plus/icons-vue'
 import { MdEditor, type ToolbarNames } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { generateContent, optimizeContent, regenerateContent } from '@/api/writing'
 import { getAIModels } from '@/api/models'
-import { getCreation } from '@/api/creations'
+import { getCreation, updateCreation } from '@/api/creations'
 import { analyzeContent, imitateContent } from '@/api/viralAnalyzer'
 import DynamicToolForm from '@/components/writing/DynamicToolForm.vue'
 import TitleOptimizer from '@/components/title/TitleOptimizer.vue'
 import TitleGenerator from '@/components/title/TitleGenerator.vue'
-import ImagePicker from '@/components/image/ImagePicker.vue'
 import { getToolFormConfig } from '@/config/writingToolForms'
 import { useHotspotWritingStore } from '@/store/hotspotWriting'
 import { useUserStore } from '@/store/user'
 import type { AIModel, Creation } from '@/types'
 
 const userStore = useUserStore()
-import type { ImageItem } from '@/api/imageStock'
 
 const router = useRouter()
 const route = useRoute()
@@ -278,10 +258,6 @@ const titleTabActive = ref('optimize')
 const titleOptimizerRef = ref<InstanceType<typeof TitleOptimizer>>()
 const titleGeneratorRef = ref<InstanceType<typeof TitleGenerator>>()
 
-// 配图相关
-const imagePickerRef = ref<InstanceType<typeof ImagePicker>>()
-const coverImage = ref<ImageItem | null>(null)
-
 // 获取当前标题
 const currentTitle = computed(() => {
   return formData.value.title || currentCreation.value?.title || ''
@@ -322,7 +298,7 @@ const handleGenerate = async () => {
       // 将分析结果格式化为 Markdown
       const analysisContent = formatAnalysisResult(analyzeRes)
       res = {
-        id: 0,
+        id: analyzeRes.creation_id || 0,
         user_id: 0,
         tool_type: 'viral_analyze',
         title: analyzeRes.title || '爆款分析报告',
@@ -363,6 +339,10 @@ const handleGenerate = async () => {
     markdownContent.value = res.output_content || res.content || ''
     ElMessage.success('生成成功')
     userStore.refreshCredits()
+    // 生成前已通过表单/标题助手设置标题时，同步持久化，避免历史记录显示“未命名”
+    if (res.id && formData.value?.title) {
+      updateCreation(res.id, { title: formData.value.title }).catch(() => {})
+    }
   } catch (error: any) {
     ElMessage.error(error.message || '生成失败')
   } finally {
@@ -483,30 +463,24 @@ const handleExport = () => {
 }
 
 // 标题选择处理
-const handleTitleSelect = (title: string) => {
+const handleTitleSelect = async (title: string) => {
   // 更新表单中的标题
   if (formData.value) {
     formData.value.title = title
   }
-  // 如果已有创作记录，也更新其标题
+  // 如果已有创作记录，同步更新标题并持久化到历史记录
   if (currentCreation.value) {
     currentCreation.value.title = title
   }
   showTitleDialog.value = false
   ElMessage.success('已应用新标题')
-}
-
-// 打开图片选择器
-const openImagePicker = () => {
-  // 根据内容生成默认搜索词
-  const defaultQuery = formData.value.topic || formData.value.title || ''
-  imagePickerRef.value?.open(defaultQuery)
-}
-
-// 图片选择处理
-const handleImageSelect = (image: ImageItem) => {
-  coverImage.value = image
-  ElMessage.success('已选择封面图')
+  if (currentCreation.value?.id) {
+    try {
+      await updateCreation(currentCreation.value.id, { title })
+    } catch (error: any) {
+      ElMessage.error(error.message || '标题保存失败，请重试')
+    }
+  }
 }
 
 const modelLabel = (model: AIModel) => {
@@ -688,35 +662,6 @@ onMounted(async () => {
   border: 1px dashed rgba(148, 163, 184, 0.32);
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(239, 246, 255, 0.7));
-}
-
-.cover-image-preview {
-  position: relative;
-  margin-bottom: 16px;
-  border-radius: 16px;
-  overflow: hidden;
-  background: #f5f7fa;
-
-  img {
-    width: 100%;
-    max-height: 240px;
-    object-fit: cover;
-    display: block;
-  }
-
-  .cover-actions {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    display: flex;
-    gap: 8px;
-
-    .el-button {
-      background: rgba(255, 255, 255, 0.9);
-      border-radius: 8px;
-      backdrop-filter: blur(8px);
-    }
-  }
 }
 
 .content-editor {

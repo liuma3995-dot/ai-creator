@@ -18,7 +18,18 @@
             <el-option label="公众号文章" value="wechat_article" />
             <el-option label="小红书笔记" value="xiaohongshu_note" />
             <el-option label="公文写作" value="official_document" />
+            <el-option label="论文写作" value="academic_paper" />
             <el-option label="营销文案" value="marketing_copy" />
+            <el-option label="新闻软文" value="news_article" />
+            <el-option label="短视频脚本" value="video_script" />
+            <el-option label="故事小说" value="story_novel" />
+            <el-option label="商业计划书" value="business_plan" />
+            <el-option label="工作报告" value="work_report" />
+            <el-option label="简历求职" value="resume" />
+            <el-option label="内容改写" value="rewrite" />
+            <el-option label="多语翻译" value="translation" />
+            <el-option label="爆款分析" value="viral_analyze" />
+            <el-option label="爆款模仿" value="viral_imitate" />
           </el-select>
         </el-form-item>
         <el-form-item label="创建时间">
@@ -134,7 +145,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Edit, Search, Switch } from '@element-plus/icons-vue'
+import { DataAnalysis, Document, Edit, Search, Switch, TrendCharts } from '@element-plus/icons-vue'
 import * as creationsApi from '@/api/creations'
 import { getSavedPPT } from '@/api/ppt'
 import { markdownToHtml } from '@/services/markdownRenderer'
@@ -206,10 +217,11 @@ const pagination = reactive({ page: 1, pageSize: 20, total: 0 })
 const toolNameMap: Record<string, string> = {
   wechat_article: '公众号', xiaohongshu_note: '小红书', official_document: '公文', marketing_copy: '营销', academic_paper: '论文', press_release: '新闻', video_script: '视频', story_novel: '故事', business_plan: '商业', work_report: '报告', resume: '简历', lesson_plan: '教案', content_rewrite: '改写', translation: '翻译',
   rewrite: '内容改写',
+  news_article: '新闻软文', viral_analyze: '爆款分析', viral_imitate: '爆款模仿',
   image: '图片生成', video: '视频生成', ppt: 'PPT生成', ppt_editor: 'PPT生成', ppt_outline: 'PPT生成'
 }
-const toolIconMap: Record<string, any> = { wechat_article: Document, xiaohongshu_note: Edit, official_document: Document, marketing_copy: Edit, academic_paper: Document, press_release: Document, video_script: Edit, story_novel: Edit, business_plan: Document, work_report: Document, resume: Document, lesson_plan: Document, content_rewrite: Edit, rewrite: Edit, translation: Edit }
-const toolColorMap: Record<string, string> = { wechat_article: '#07c160', xiaohongshu_note: '#ff2442', official_document: '#409eff', marketing_copy: '#f56c6c', academic_paper: '#909399', press_release: '#67c23a', video_script: '#e6a23c', story_novel: '#c71585', business_plan: '#1e90ff', work_report: '#409eff', resume: '#67c23a', lesson_plan: '#e6a23c', content_rewrite: '#909399', rewrite: '#909399', translation: '#409eff', image: '#7c3aed', video: '#0ea5e9', ppt: '#f97316' }
+const toolIconMap: Record<string, any> = { wechat_article: Document, xiaohongshu_note: Edit, official_document: Document, marketing_copy: Edit, academic_paper: Document, press_release: Document, video_script: Edit, story_novel: Edit, business_plan: Document, work_report: Document, resume: Document, lesson_plan: Document, content_rewrite: Edit, rewrite: Edit, translation: Edit, news_article: Document, viral_analyze: DataAnalysis, viral_imitate: TrendCharts }
+const toolColorMap: Record<string, string> = { wechat_article: '#07c160', xiaohongshu_note: '#ff2442', official_document: '#409eff', marketing_copy: '#f56c6c', academic_paper: '#909399', press_release: '#67c23a', video_script: '#e6a23c', story_novel: '#c71585', business_plan: '#1e90ff', work_report: '#409eff', resume: '#67c23a', lesson_plan: '#e6a23c', content_rewrite: '#909399', rewrite: '#909399', translation: '#409eff', news_article: '#909399', viral_analyze: '#9C27B0', viral_imitate: '#E91E63', image: '#7c3aed', video: '#0ea5e9', ppt: '#f97316' }
 const fetchCreations = async () => {
   loading.value = true
   try {

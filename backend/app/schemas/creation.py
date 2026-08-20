@@ -13,6 +13,7 @@ class WritingToolInfo(BaseModel):
     description: str = Field(..., description="工具描述")
     category: str = Field(..., description="工具分类")
     icon: Optional[str] = Field(None, description="图标")
+    usage_count: int = Field(0, description="累计使用次数（creations 表按 tool_type 实时统计）")
 
 
 class CreationGenerate(BaseModel):

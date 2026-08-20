@@ -5,6 +5,7 @@ from typing import Any, List, Optional
 import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status, BackgroundTasks
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -60,10 +61,18 @@ def map_creation_type(tool_type: str) -> str:
 
 
 @router.get("/tools", response_model=List[WritingToolInfo])
-def get_writing_tools() -> Any:
+def get_writing_tools(db: Session = Depends(get_db)) -> Any:
     """
     获取所有写作工具列表
     """
+    usage_rows = (
+        db.query(Creation.tool_type, func.count(Creation.id))
+        .filter(Creation.tool_type.isnot(None), Creation.deleted_at.is_(None))
+        .group_by(Creation.tool_type)
+        .all()
+    )
+    usage_map = {tool_type: count for tool_type, count in usage_rows}
+
     tools = [
         {
             "tool_type": "wechat_article",
@@ -163,7 +172,23 @@ def get_writing_tools() -> Any:
             "icon": "🌐",
             "category": "language",
         },
+        {
+            "tool_type": "viral_analyze",
+            "name": "爆款分析",
+            "description": "深度拆解爆款文章的成功要素，提取写作技巧和爆款元素",
+            "icon": "📊",
+            "category": "creative",
+        },
+        {
+            "tool_type": "viral_imitate",
+            "name": "爆款模仿",
+            "description": "参考爆款文章风格，围绕新主题生成类似风格内容",
+            "icon": "📈",
+            "category": "creative",
+        },
     ]
+    for tool in tools:
+        tool["usage_count"] = usage_map.get(tool["tool_type"], 0)
     return tools
 
 

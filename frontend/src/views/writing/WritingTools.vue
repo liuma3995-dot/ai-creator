@@ -70,7 +70,7 @@
             </el-tag>
           </div>
           <div class="tool-usage">
-            <span class="usage-count">{{ tool.usageCount }} 次使用</span>
+            <span class="usage-count">{{ tool.usageCount ?? 0 }} 次使用</span>
           </div>
         </el-card>
       </div>
@@ -96,12 +96,14 @@ import {
   Promotion,
   Reading,
   RefreshRight,
+  School,
   Tickets,
   TrendCharts,
   User,
   VideoCamera,
 } from '@element-plus/icons-vue'
 import HotspotPanel from '@/components/hotspot/HotspotPanel.vue'
+import { getWritingTools } from '@/api/writing'
 
 const router = useRouter()
 const activeCategory = ref('all')
@@ -114,7 +116,19 @@ const categories = [
   { label: '内容优化', value: 'optimization' },
 ]
 
-const writingTools = [
+interface WritingToolItem {
+  type: string
+  name: string
+  description: string
+  icon: any
+  color: string
+  tags: string[]
+  category: string
+  isHot: boolean
+  usageCount?: number
+}
+
+const writingTools = ref<WritingToolItem[]>([
   {
     type: 'wechat_article',
     name: '公众号文章',
@@ -124,7 +138,6 @@ const writingTools = [
     tags: ['自媒体', '长文'],
     category: 'social',
     isHot: true,
-    usageCount: 1245,
   },
   {
     type: 'xiaohongshu_note',
@@ -135,7 +148,6 @@ const writingTools = [
     tags: ['种草', '短文'],
     category: 'social',
     isHot: true,
-    usageCount: 2341,
   },
   {
     type: 'official_document',
@@ -146,7 +158,6 @@ const writingTools = [
     tags: ['正式', '规范'],
     category: 'professional',
     isHot: false,
-    usageCount: 523,
   },
   {
     type: 'academic_paper',
@@ -157,7 +168,6 @@ const writingTools = [
     tags: ['学术', '专业'],
     category: 'professional',
     isHot: false,
-    usageCount: 678,
   },
   {
     type: 'marketing_copy',
@@ -168,7 +178,6 @@ const writingTools = [
     tags: ['营销', '转化'],
     category: 'professional',
     isHot: true,
-    usageCount: 1890,
   },
   {
     type: 'news_article',
@@ -179,7 +188,6 @@ const writingTools = [
     tags: ['新闻', '传播'],
     category: 'professional',
     isHot: false,
-    usageCount: 456,
   },
   {
     type: 'video_script',
@@ -190,7 +198,6 @@ const writingTools = [
     tags: ['视频', '脚本'],
     category: 'social',
     isHot: true,
-    usageCount: 1567,
   },
   {
     type: 'story_novel',
@@ -201,7 +208,6 @@ const writingTools = [
     tags: ['创意', '文学'],
     category: 'creative',
     isHot: false,
-    usageCount: 234,
   },
   {
     type: 'business_plan',
@@ -212,7 +218,6 @@ const writingTools = [
     tags: ['商业', '专业'],
     category: 'professional',
     isHot: false,
-    usageCount: 345,
   },
   {
     type: 'work_report',
@@ -223,7 +228,6 @@ const writingTools = [
     tags: ['职场', '总结'],
     category: 'professional',
     isHot: false,
-    usageCount: 789,
   },
   {
     type: 'resume',
@@ -234,7 +238,16 @@ const writingTools = [
     tags: ['求职', '简历'],
     category: 'professional',
     isHot: false,
-    usageCount: 632,
+  },
+  {
+    type: 'lesson_plan',
+    name: '教案课件',
+    description: '生成教学目标清晰、结构完整的教案和课件提纲。',
+    icon: School,
+    color: '#E6A23C',
+    tags: ['教学', '教案'],
+    category: 'professional',
+    isHot: false,
   },
   {
     type: 'rewrite',
@@ -245,7 +258,6 @@ const writingTools = [
     tags: ['改写', '优化'],
     category: 'optimization',
     isHot: true,
-    usageCount: 983,
   },
   {
     type: 'translation',
@@ -256,7 +268,6 @@ const writingTools = [
     tags: ['翻译', '多语'],
     category: 'optimization',
     isHot: false,
-    usageCount: 417,
   },
   {
     type: 'viral_analyze',
@@ -267,7 +278,6 @@ const writingTools = [
     tags: ['爆款', '分析'],
     category: 'creative',
     isHot: true,
-    usageCount: 0,
   },
   {
     type: 'viral_imitate',
@@ -278,23 +288,36 @@ const writingTools = [
     tags: ['爆款', '模仿'],
     category: 'creative',
     isHot: true,
-    usageCount: 0,
   },
-]
+])
 
-const recentTools = ref<typeof writingTools>([])
+const recentTools = ref<typeof writingTools.value>([])
 
 onMounted(() => {
   const recent = localStorage.getItem('recentTools') || '[]'
   const recentIds = JSON.parse(recent) as string[]
   recentTools.value = recentIds
-    .map((id) => writingTools.find((tool) => tool.type === id))
-    .filter((tool): tool is (typeof writingTools)[number] => Boolean(tool))
-      .slice(0, 4)
+    .map((id) => writingTools.value.find((tool) => tool.type === id))
+    .filter((tool): tool is (typeof writingTools.value)[number] => Boolean(tool))
+    .slice(0, 4)
+
+  getWritingTools()
+    .then((tools) => {
+      const usageMap = new Map(tools.map((tool) => [tool.tool_type, tool.usage_count ?? 0]))
+      writingTools.value.forEach((tool) => {
+        tool.usageCount = usageMap.get(tool.type) ?? 0
+      })
+    })
+    .catch(() => {
+      // 统计接口异常时保留 0，不阻塞页面渲染
+      writingTools.value.forEach((tool) => {
+        tool.usageCount = 0
+      })
+    })
 })
 
 const filteredTools = computed(() => {
-  let filtered = writingTools
+  let filtered = writingTools.value
 
   if (activeCategory.value !== 'all') {
     filtered = filtered.filter((tool) => tool.category === activeCategory.value)
@@ -302,7 +325,7 @@ const filteredTools = computed(() => {
 
   return filtered.sort((a, b) => {
     if (a.isHot !== b.isHot) return a.isHot ? -1 : 1
-    return b.usageCount - a.usageCount
+    return (b.usageCount ?? 0) - (a.usageCount ?? 0)
   })
 })
 

@@ -79,7 +79,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="balance_after" label="余额" width="100" />
-        <el-table-column prop="description" label="说明" min-width="220" />
+        <el-table-column label="说明" min-width="220">
+          <template #default="{ row }">
+            {{ formatDescription(row.description) }}
+          </template>
+        </el-table-column>
         <el-table-column label="关联订单" width="150">
           <template #default="{ row }">
             <span v-if="row.order_id">{{ row.order_id }}</span>
@@ -114,6 +118,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Medal, Wallet } from '@element-plus/icons-vue'
 import { getCreditBalance, getCreditTransactions, type CreditBalance } from '@/api/credit'
+import { formatDescription } from '@/utils/displayNames'
 
 const router = useRouter()
 

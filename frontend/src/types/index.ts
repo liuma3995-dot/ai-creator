@@ -116,6 +116,9 @@ export interface WritingTool {
   tool_type: string
   name: string
   description: string
+  category?: string
+  icon?: string
+  usage_count?: number
 }
 
 export interface GenerateContentParams {

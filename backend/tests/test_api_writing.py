@@ -24,6 +24,10 @@ class TestWritingAPI:
         assert "tool_type" in tool
         assert "name" in tool
         assert "description" in tool
+        # 使用次数应为后端实时统计的非负整数
+        assert "usage_count" in tool
+        assert isinstance(tool["usage_count"], int)
+        assert tool["usage_count"] >= 0
     
     @patch('app.services.writing_service.WritingService.generate_content')
     def test_generate_content_success(self, mock_generate, client, auth_headers, db_session, test_user):
@@ -64,6 +68,36 @@ class TestWritingAPI:
             }
         )
         assert response.status_code == 401
+
+    @patch('app.services.writing_service.WritingService.generate_content')
+    def test_generate_lesson_plan_consumes_credits(self, mock_generate, client, auth_headers, db_session, test_user):
+        """教案课件走通用生成链路：非会员扣 10 积分，tool_type 正确传递"""
+        from app.models.user import User
+
+        test_user.credits = 100
+        db_session.commit()
+        model = self._make_model(db_session, test_user)
+        mock_generate.return_value = "教案内容"
+
+        response = client.post(
+            "/api/v1/writing/generate",
+            headers=auth_headers,
+            json={
+                "tool_type": "lesson_plan",
+                "model_id": model.id,
+                "parameters": {
+                    "subject": "数学",
+                    "objectives": "掌握一元二次方程的解法",
+                },
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["tool_type"] == "lesson_plan"
+        assert data["output_content"] == "教案内容"
+
+        refreshed = db_session.query(User).filter(User.id == test_user.id).first()
+        assert refreshed.credits == 90
     
     @patch('app.services.writing_service.WritingService.generate_content')
     def test_generate_content_invalid_tool_type(self, mock_generate, client, auth_headers, db_session, test_user):

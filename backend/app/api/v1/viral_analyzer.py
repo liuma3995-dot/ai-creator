@@ -2,13 +2,15 @@
 爆款模仿 API
 分析爆款文章风格并生成类似内容
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 import logging
 
 from app.core.database import get_db
+from app.core.exceptions import BusinessException
 from app.models.user import User
 from app.models.ai_model import AIModel
+from app.models.credit import TransactionType
 from app.utils.deps import get_current_user
 from app.schemas.viral_analyzer import (
     AnalyzeRequest,
@@ -17,6 +19,7 @@ from app.schemas.viral_analyzer import (
     ImitateResponse,
 )
 from app.services.viral_analyzer_service import ViralAnalyzerService
+from app.services.credit_service import CreditService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -67,15 +70,42 @@ async def analyze_content(
             status_code=400,
             detail="请先配置 AI 模型才能使用爆款分析功能"
         )
+
+    # 检查并扣减积分（会员不扣积分，与通用写作工具一致）
+    credits_required = 10
+    try:
+        CreditService.check_and_consume_credits(
+            db=db,
+            user_id=current_user.id,
+            amount=credits_required,
+            description="AI写作 - viral_analyze",
+        )
+    except BusinessException as e:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=e.detail,
+        )
     
     try:
         result = await ViralAnalyzerService.analyze(
             request=request,
             ai_model=ai_model,
+            db=db,
+            user_id=current_user.id,
         )
         return result
     except Exception as e:
         logger.error(f"爆款分析失败: {e}")
+        # 扣费成功后的生成失败自动退款
+        if not current_user.is_member:
+            db.rollback()
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="AI写作失败退款 - viral_analyze",
+            )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -111,6 +141,21 @@ async def imitate_content(
             status_code=400,
             detail="请先配置 AI 模型才能使用爆款模仿功能"
         )
+
+    # 检查并扣减积分（会员不扣积分，与通用写作工具一致）
+    credits_required = 10
+    try:
+        CreditService.check_and_consume_credits(
+            db=db,
+            user_id=current_user.id,
+            amount=credits_required,
+            description="AI写作 - viral_imitate",
+        )
+    except BusinessException as e:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=e.detail,
+        )
     
     try:
         result = await ViralAnalyzerService.imitate(
@@ -122,4 +167,14 @@ async def imitate_content(
         return result
     except Exception as e:
         logger.error(f"爆款模仿失败: {e}")
+        # 扣费成功后的生成失败自动退款
+        if not current_user.is_member:
+            db.rollback()
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="AI写作失败退款 - viral_imitate",
+            )
         raise HTTPException(status_code=500, detail=str(e))

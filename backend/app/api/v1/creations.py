@@ -53,7 +53,7 @@ async def get_creations(
     
     # 工具类型筛选
     if tool_type:
-        query = query.filter(Creation.creation_type == tool_type)
+        query = query.filter(Creation.tool_type == tool_type)
     
     # 搜索功能
     if search:
@@ -117,6 +117,7 @@ async def create_creation(
         user_id=current_user.id,
         title=creation_data.title,
         creation_type=creation_data.creation_type,
+        tool_type=creation_data.tool_type,
         output_content=creation_data.content,
         input_data=creation_data.input_data,
         extra_data=creation_data.extra_data

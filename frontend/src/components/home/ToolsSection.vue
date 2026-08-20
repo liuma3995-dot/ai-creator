@@ -72,6 +72,8 @@ const writingTools = ref([
   { type: 'lesson_plan', name: '教案课件', description: '辅助生成教学教案和课程提纲', icon: 'School' },
   { type: 'rewrite', name: '内容改写', description: '支持改写、扩写、缩写和润色', icon: 'RefreshRight' },
   { type: 'translation', name: '多语言翻译', description: '完成多语言内容翻译和表达优化', icon: 'Switch' },
+  { type: 'viral_analyze', name: '爆款分析', description: '深度拆解爆款文章的成功要素与写作技巧', icon: 'DataAnalysis' },
+  { type: 'viral_imitate', name: '爆款模仿', description: '参考爆款风格，围绕新主题生成类似内容', icon: 'TrendCharts' },
 ])
 
 const otherTools = ref([

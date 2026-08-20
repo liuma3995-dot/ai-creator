@@ -207,6 +207,7 @@ import {ElMessage} from 'element-plus'
 import {Money, User, Stamp, Document, CaretTop, CaretBottom, Download} from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import {getOperationStatistics} from '@/api/operation'
+import {formatToolName} from '@/utils/displayNames'
 
 const dateRange = ref<[Date, Date]>([
   new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
@@ -327,7 +328,10 @@ const initCharts = (data: any) => {
         name: '创作类型',
         type: 'pie',
         radius: '50%',
-        data: data.creation_distribution || []
+        data: (data.creation_distribution || []).map((item: any) => ({
+          ...item,
+          name: formatToolName(item.name),
+        }))
       }]
     })
   }
@@ -341,7 +345,10 @@ const initCharts = (data: any) => {
         name: '充值方式',
         type: 'pie',
         radius: '50%',
-        data: data.payment_distribution || []
+        data: (data.payment_distribution || []).map((item: any) => ({
+          ...item,
+          name: formatToolName(item.name),
+        }))
       }]
     })
   }
