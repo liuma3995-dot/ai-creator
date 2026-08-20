@@ -98,6 +98,42 @@ class TestWritingAPI:
 
         refreshed = db_session.query(User).filter(User.id == test_user.id).first()
         assert refreshed.credits == 90
+
+    @patch('app.services.writing_service.WritingService.generate_content')
+    def test_generate_video_script_passes_video_type(self, mock_generate, client, auth_headers, db_session, test_user):
+        """短视频脚本生成：video_type/style 正确传递到生成服务，非会员扣 10 积分"""
+        from app.models.user import User
+
+        test_user.credits = 100
+        db_session.commit()
+        model = self._make_model(db_session, test_user)
+        mock_generate.return_value = "脚本内容"
+
+        response = client.post(
+            "/api/v1/writing/generate",
+            headers=auth_headers,
+            json={
+                "tool_type": "video_script",
+                "model_id": model.id,
+                "parameters": {
+                    "topic": "3步学会拍Vlog",
+                    "duration": "30秒",
+                    "video_type": "人群型",
+                    "style": "教知识",
+                },
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["tool_type"] == "video_script"
+        assert data["output_content"] == "脚本内容"
+
+        user_input = mock_generate.call_args.kwargs["user_input"]
+        assert user_input["video_type"] == "人群型"
+        assert user_input["style"] == "教知识"
+
+        refreshed = db_session.query(User).filter(User.id == test_user.id).first()
+        assert refreshed.credits == 90
     
     @patch('app.services.writing_service.WritingService.generate_content')
     def test_generate_content_invalid_tool_type(self, mock_generate, client, auth_headers, db_session, test_user):

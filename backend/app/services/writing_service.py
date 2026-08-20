@@ -143,26 +143,17 @@ class WritingService:
 
 请直接输出新闻稿内容。""",
         
-        "video_script": """你是一位短视频脚本创作专家。请根据以下信息创作短视频脚本：
+        "video_script": """请根据以下信息创作短视频脚本：
 
 视频主题：{topic}
 视频时长：{duration}
 目标平台：{platform}
+视频类型：{video_type}
 视频风格：{style}
 
-要求：
-1. 开头3秒抓住注意力
-2. 节奏紧凑，信息密度高
-3. 包含画面描述、台词、字幕、音效等
-4. 适合竖屏观看
-5. 结尾有互动引导
-6. 时长控制在{duration}
-
-请按以下格式输出：
-【画面】描述
-【台词】内容
-【字幕】文字
-【音效】说明""",
+【视频类型钩子策略】{video_type}：{hook_strategy}
+【视频风格结构】{style}：{structure}
+【镜头节奏】{duration}：目标镜头数 {shot_guide}；单镜最长不超过3秒，快节奏段不超过1秒；分镜时间轴必须覆盖完整{duration}""",
         
         "story_novel": """你是一位优秀的故事作家。请根据以下信息创作故事：
 
@@ -314,31 +305,14 @@ class WritingService:
 
     @staticmethod
     def _inject_supplement(prompt: str, supplement: str) -> str:
-        """将用户补充说明注入提示词，使其优先于模板默认要求"""
-        import re
-
+        """将用户补充说明追加到提示词末尾，作为低优先级补充要求"""
         supplement = supplement.strip()
-        # 用户明确指定字数时：改用极简模式，仅保留主题/关键词与用户要求，
-        # 避免模板的结构与默认字数要求压制用户指令
-        if re.search(r"字数.{0,20}?\d+\s*字", supplement):
-            topic_match = re.search(r"主题[:：]\s*([^\n]+)", prompt)
-            keyword_match = re.search(r"关键词[:：]\s*([^\n]+)", prompt)
-            base_info = ""
-            if topic_match:
-                base_info += f"主题：{topic_match.group(1).strip()}\n"
-            if keyword_match:
-                base_info += f"关键词：{keyword_match.group(1).strip()}\n"
-            return (
-                f"请根据以下信息创作内容，必须严格遵守【用户特殊要求】。\n\n"
-                f"{base_info}"
-                f"【用户特殊要求】（最高优先级，必须严格遵守）\n{supplement}\n\n"
-                f"请直接输出内容，不要任何多余说明。"
-            )
-        # 补充说明作为最高优先级要求，置于提示词最前面
+        if not supplement:
+            return prompt
         return (
-            f"【用户特殊要求】（最高优先级，必须严格遵守；与下方默认要求冲突时，一律以本条为准）\n"
-            f"{supplement}\n\n"
-            f"{prompt}"
+            f"{prompt}\n\n"
+            f"【补充要求】\n{supplement}\n"
+            f"（以上为补充要求，请在不与上文要求冲突的前提下尽量满足。）"
         )
     
     # 各工具类型的默认参数值
@@ -376,6 +350,7 @@ class WritingService:
             "duration": "1分钟",
             "platform": "抖音",
             "style": "轻松搞笑",
+            "video_type": "人群型",
         },
         "story_novel": {
             "genre": "现代都市",
@@ -420,6 +395,66 @@ class WritingService:
             "style": "通用",
         },
     }
+
+    # 短视频脚本：分层系统提示词（角色+通用规则+输出格式，固定不变）
+    TOOL_SYSTEM_PROMPTS = {
+        "video_script": """你是一位短视频脚本创作专家。请遵循以下规则创作短视频脚本：
+
+【通用创作规则】
+1. 开头3秒必须使用用户消息中给出的视频类型钩子策略抓住注意力
+2. 按用户消息中给出的视频风格组织节奏与表达方式
+3. 节奏紧凑，每5秒设置一个兴趣点
+4. 适合竖屏观看（9:16），前3秒要有大字幕
+5. 结尾有互动引导（点赞/评论/关注/收藏/转发）
+6. 分镜镜头数必须符合用户消息中给出的目标镜头数；单镜最长不超过3秒，快节奏段不超过1秒
+
+【平台适配】
+- 抖音/快手：以15-60秒为主，黄金3秒+前3秒大字幕，强互动引导
+- B站/小红书：以1-3分钟为主，开头钩子可以稍深，完播导向
+- 视频号：社交传播导向，结尾引导转发
+
+【输出格式】（严格按以下六要素，使用Markdown）
+## 一、视频标题（2个备选，20字内，含关键词或悬念）
+## 二、黄金3秒开头（钩子类型+开场口播+开场画面）
+## 三、分镜表（Markdown表格，固定表头：镜号|时间轴|画面|台词|字幕|音效，逐镜列出）
+## 四、强化结尾（CTA互动引导+记忆点金句）
+## 五、标签建议（5-8个精准标签）
+## 六、拍摄要点（关键镜头技巧、道具场景、注意事项）""",
+    }
+
+    # 短视频脚本：8 种视频类型 -> 钩子策略（动态注入所选类型）
+    VIDEO_SCRIPT_HOOKS = {
+        "成本型": "利益点钩——直接给出代价/投入与收益的强对比",
+        "人群型": "身份认同钩——用圈层标签开场，让用户觉得“这说的就是我”",
+        "猎奇型": "悬念/反常识钩——用反常识或圈内秘闻开场，制造好奇心",
+        "反差型": "冲突反转钩——打破固有预期，用反差制造停留与评论",
+        "最差型": "避坑清单钩——盘点坑点/避坑预警开场",
+        "头牌型": "权威标杆钩——借头部案例与标杆数据开场提升专业感",
+        "怀旧型": "情感共鸣钩——唤醒共同记忆，触发情感共鸣",
+        "荷尔蒙型": "向往感钩——用审美、体面、自信气场制造向往感",
+    }
+
+    # 短视频脚本：9 种视频风格 -> 结构要求（动态注入所选风格）
+    VIDEO_SCRIPT_STRUCTURES = {
+        "轻松搞笑": "段子+反转结构，节奏明快",
+        "专业讲解": "总分总结构，逻辑清晰",
+        "情感故事": "故事+情感共鸣结构，情绪递进",
+        "快节奏剪辑": "每5秒一个兴趣点，快切镜头",
+        "Vlog风格": "第一人称+过程记录结构",
+        "教知识": "问题+反常识+三步拆解（或清单避坑）结构，干货密集",
+        "晒过程": "立目标+过程记录+结果呈现结构，持续制造期待",
+        "聊观点": "观点+反驳+我的看法结构，引发评论",
+        "讲故事": "故事+感悟+行动建议结构，建立信任",
+    }
+
+    # 短视频脚本：时长 -> 目标镜头数（动态注入所选时长）
+    VIDEO_SCRIPT_SHOT_GUIDE = {
+        "15秒": "2-4镜",
+        "30秒": "5-8镜",
+        "1分钟": "10-15镜",
+        "3分钟": "18-30镜",
+        "5分钟": "30-45镜",
+    }
     
     @classmethod
     async def generate_content(
@@ -454,6 +489,21 @@ class WritingService:
         # 合并默认参数和用户输入
         defaults = cls.TOOL_DEFAULTS.get(tool_type, {})
         merged_input = {**defaults, **user_input}
+
+        # 短视频脚本：分层提示词 + 动态组装（A+B）
+        # 系统提示词承载角色/规则/输出格式；用户消息只注入所选类型/风格/时长的策略
+        system_prompt = None
+        if tool_type == "video_script":
+            merged_input["hook_strategy"] = cls.VIDEO_SCRIPT_HOOKS.get(
+                merged_input.get("video_type"), "结合主题设计有力钩子"
+            )
+            merged_input["structure"] = cls.VIDEO_SCRIPT_STRUCTURES.get(
+                merged_input.get("style"), "结构清晰、节奏紧凑"
+            )
+            merged_input["shot_guide"] = cls.VIDEO_SCRIPT_SHOT_GUIDE.get(
+                merged_input.get("duration"), "按平台惯例"
+            )
+            system_prompt = cls.TOOL_SYSTEM_PROMPTS.get("video_script")
         
         # 填充提示词
         try:
@@ -461,7 +511,7 @@ class WritingService:
         except KeyError as e:
             raise ValueError(f"缺少必需的输入参数: {str(e)}")
         
-        # 如果用户提供了补充说明，注入为最高优先级要求
+        # 如果用户提供了补充说明，追加到提示词末尾（低优先级补充要求）
         if additional_description and additional_description.strip():
             prompt = cls._inject_supplement(prompt, additional_description)
         
@@ -472,7 +522,7 @@ class WritingService:
             tool=tool_type,
             creation_id=creation_id
         )
-        response = await service.chat(prompt)
+        response = await service.chat(prompt, system_prompt=system_prompt)
         
         return response.content
     
@@ -518,127 +568,6 @@ class WritingService:
         
         return response.content
     
-    @classmethod
-    async def generate_content_with_cookie(
-        cls,
-        db: Session,
-        user_id: int,
-        tool_type: str,
-        user_input: Dict[str, Any],
-        platform: str = "doubao",
-    ) -> str:
-        """
-        使用Cookie方式生成内容（通过OAuth账号）
-        
-        Args:
-            db: 数据库连接
-            user_id: 用户ID
-            tool_type: 工具类型
-            user_input: 用户输入
-            platform: AI平台（默认为豆包）
-            
-        Returns:
-            生成的内容
-        """
-        tool_type = cls._normalize_tool_type(tool_type)
-        # 动态导入Cookie管理器（避免循环导入）
-        from app.services.cookie_ai_manager import CookieAIServiceManager
-        
-        # 获取提示词模板
-        if tool_type not in cls.TOOL_PROMPTS:
-            raise ValueError(f"不支持的写作工具类型: {tool_type}")
-        
-        prompt_template = cls.TOOL_PROMPTS[tool_type]
-        
-        # 提取用户补充说明（不传递给模板格式化）
-        additional_description = user_input.pop('additional_description', None)
-        
-        # 合并默认参数和用户输入
-        defaults = cls.TOOL_DEFAULTS.get(tool_type, {})
-        merged_input = {**defaults, **user_input}
-        
-        # 填充提示词
-        try:
-            prompt = prompt_template.format(**merged_input)
-        except KeyError as e:
-            raise ValueError(f"缺少必需的输入参数: {str(e)}")
-        
-        # 如果用户提供了补充说明，注入为最高优先级要求
-        if additional_description and additional_description.strip():
-            prompt = cls._inject_supplement(prompt, additional_description)
-        
-        # 使用Cookie服务调用AI
-        manager = CookieAIServiceManager(db)
-        
-        try:
-            content = await manager.generate_text_with_cookie(
-                user_id=user_id,
-                platform=platform,
-                prompt=prompt,
-            )
-            return content
-        except ValueError as e:
-            logger.error(f"Cookie-based generation failed: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error during Cookie-based generation: {e}")
-            raise ValueError(f"生成内容失败: {str(e)}")
-    
-    @classmethod
-    async def optimize_content_with_cookie(
-        cls,
-        db: Session,
-        user_id: int,
-        content: str,
-        optimization_type: str,
-        platform: str = "doubao",
-    ) -> str:
-        """
-        使用Cookie方式优化内容
-        
-        Args:
-            db: 数据库连接
-            user_id: 用户ID
-            content: 原始内容
-            optimization_type: 优化类型
-            platform: AI平台（默认为豆包）
-            
-        Returns:
-            优化后的内容
-        """
-        from app.services.cookie_ai_manager import CookieAIServiceManager
-        
-        optimization_prompts = {
-            "seo": f"请对以下内容进行SEO优化，提高搜索引擎友好度：\n\n{content}",
-            "readability": f"请优化以下内容的可读性，使其更易理解：\n\n{content}",
-            "style": f"请在不改变原意的前提下调整以下内容的文风，使其更自然、更有感染力，并符合目标场景的表达习惯：\n\n{content}",
-            "engagement": f"请优化以下内容，提高用户参与度和互动性：\n\n{content}",
-            "concise": f"请精简以下内容，保留核心信息：\n\n{content}",
-            "expand": f"请扩展以下内容，增加细节和深度：\n\n{content}"
-        }
-        
-        if optimization_type not in optimization_prompts:
-            raise ValueError(f"不支持的优化类型: {optimization_type}")
-        
-        prompt = optimization_prompts[optimization_type]
-        
-        # 使用Cookie服务调用AI
-        manager = CookieAIServiceManager(db)
-        
-        try:
-            optimized_content = await manager.generate_text_with_cookie(
-                user_id=user_id,
-                platform=platform,
-                prompt=prompt,
-            )
-            return optimized_content
-        except ValueError as e:
-            logger.error(f"Cookie-based optimization failed: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error during Cookie-based optimization: {e}")
-            raise ValueError(f"优化内容失败: {str(e)}")
-
     @staticmethod
     def get_available_tools():
         """获取所有可用的写作工具列表"""
@@ -793,7 +722,7 @@ class WritingService:
         except KeyError as e:
             raise ValueError(f"缺少必需的输入参数: {str(e)}")
         
-        # 如果用户提供了补充说明，注入为最高优先级要求
+        # 如果用户提供了补充说明，追加到提示词末尾（低优先级补充要求）
         if additional_description and additional_description.strip():
             base_prompt = cls._inject_supplement(base_prompt, additional_description)
         

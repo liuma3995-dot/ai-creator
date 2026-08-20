@@ -23,13 +23,15 @@ class _FakeChatService:
 
     async def chat(self, message, **kwargs):
         self.captured["message"] = message
+        self.captured["system_prompt"] = kwargs.get("system_prompt")
         return SimpleNamespace(content="生成内容")
 
 
 class TestGenerateContentSupplement:
     """测试生成/重新生成时补充说明进入提示词"""
 
-    async def test_generate_content_appends_supplement_with_priority(self, db_session):
+    async def test_generate_content_appends_supplement_at_end_without_priority(self, db_session):
+        """补充说明追加到提示词末尾，作为低优先级要求，不再触发极简模式"""
         ai_model = Mock()
         ai_model.provider = "openai"
         ai_model.api_key = "test-key"
@@ -53,15 +55,16 @@ class TestGenerateContentSupplement:
 
         prompt = fake.captured["message"]
         assert result == "生成内容"
-        assert "【用户特殊要求】" in prompt
-        assert prompt.startswith("请根据以下信息创作内容")
+        assert "小红书爆款笔记创作专家" in prompt
+        assert prompt.startswith("你是一位小红书爆款笔记创作专家")
         assert "字数要求：50字" in prompt
-        assert "最高优先级" in prompt
-        # 补充说明指定字数后应改用极简模式，不再携带模板结构要求
-        assert "小红书爆款笔记创作专家" not in prompt
+        assert "【补充要求】\n字数要求：50字" in prompt
+        assert "最高优先级" not in prompt
+        # 补充说明块位于提示词末尾
+        assert prompt.endswith("（以上为补充要求，请在不与上文要求冲突的前提下尽量满足。）")
 
     async def test_generate_content_general_supplement_keeps_template(self, db_session):
-        """补充说明未指定字数时，保留工具模板并注入最高优先级要求"""
+        """补充说明未指定字数时，保留工具模板并追加到末尾"""
         ai_model = Mock()
         ai_model.provider = "openai"
         ai_model.api_key = "test-key"
@@ -86,7 +89,9 @@ class TestGenerateContentSupplement:
         prompt = fake.captured["message"]
         assert "语言要口语化、有感染力" in prompt
         assert "小红书爆款笔记创作专家" in prompt
-        assert "最高优先级" in prompt
+        assert "【补充要求】\n语言要口语化、有感染力" in prompt
+        assert "最高优先级" not in prompt
+        assert prompt.endswith("（以上为补充要求，请在不与上文要求冲突的前提下尽量满足。）")
 
 
 class TestGetLangChainService:
@@ -268,11 +273,130 @@ class TestPromptTemplates:
             placeholders = re.findall(r'\{(\w+)\}', template)
             
             # 检查每个占位符是否有默认值或是常见的用户输入字段
-            user_input_fields = {'topic', 'keywords', 'content', 'title', 'original_content'}
+            # hook_strategy/structure/shot_guide 为 video_script 派生字段（由类型/风格/时长计算）
+            user_input_fields = {
+                'topic', 'keywords', 'content', 'title', 'original_content',
+                'hook_strategy', 'structure', 'shot_guide',
+            }
             for placeholder in placeholders:
                 if placeholder not in user_input_fields:
                     assert placeholder in defaults, \
                         f"工具 {tool_type} 的占位符 {placeholder} 没有默认值"
+
+
+class TestVideoScriptTemplate:
+    """短视频脚本模板：8 类型 × 9 风格、六要素输出、时长换算、钩子与结构指引"""
+
+    VIDEO_TYPES = ["成本型", "人群型", "猎奇型", "反差型", "最差型", "头牌型", "怀旧型", "荷尔蒙型"]
+    STYLES = [
+        "轻松搞笑", "专业讲解", "情感故事", "快节奏剪辑", "Vlog风格",
+        "教知识", "晒过程", "聊观点", "讲故事",
+    ]
+    SECTIONS = [
+        "## 一、视频标题", "## 二、黄金3秒开头", "## 三、分镜表",
+        "## 四、强化结尾", "## 五、标签建议", "## 六、拍摄要点",
+    ]
+
+    def _render(self, **overrides):
+        template = WritingService.TOOL_PROMPTS["video_script"]
+        defaults = WritingService.TOOL_DEFAULTS.get("video_script", {})
+        merged = {**defaults, "topic": "测试主题", **overrides}
+        merged["hook_strategy"] = WritingService.VIDEO_SCRIPT_HOOKS.get(merged.get("video_type"), "")
+        merged["structure"] = WritingService.VIDEO_SCRIPT_STRUCTURES.get(merged.get("style"), "")
+        merged["shot_guide"] = WritingService.VIDEO_SCRIPT_SHOT_GUIDE.get(merged.get("duration"), "")
+        return template.format(**merged)
+
+    def test_template_fills_all_video_types_and_styles(self):
+        """8 种视频类型 × 9 种风格全部可正常填充模板"""
+        for vtype in self.VIDEO_TYPES:
+            for style in self.STYLES:
+                prompt = self._render(video_type=vtype, style=style)
+                assert vtype in prompt
+                assert style in prompt
+
+    def test_prompt_contains_six_sections(self):
+        """系统提示词要求六要素结构化输出"""
+        system_prompt = WritingService.TOOL_SYSTEM_PROMPTS["video_script"]
+        for section in self.SECTIONS:
+            assert section in system_prompt
+
+    def test_prompt_contains_shot_guide(self):
+        """时长换算字典齐全，且用户消息只注入所选时长的目标镜头数"""
+        assert WritingService.VIDEO_SCRIPT_SHOT_GUIDE == {
+            "15秒": "2-4镜", "30秒": "5-8镜", "1分钟": "10-15镜",
+            "3分钟": "18-30镜", "5分钟": "30-45镜",
+        }
+        assert "目标镜头数 5-8镜" in self._render(duration="30秒")
+        assert "目标镜头数 2-4镜" in self._render(duration="15秒")
+        assert "目标镜头数 10-15镜" in self._render(duration="1分钟")
+
+    def test_prompt_contains_hook_and_structure_guides(self):
+        """钩子与结构字典覆盖 8 类型 × 9 风格；用户消息只注入所选内容（B）"""
+        assert len(WritingService.VIDEO_SCRIPT_HOOKS) == 8
+        for hook in ["利益点钩", "身份认同钩", "悬念/反常识钩", "冲突反转钩",
+                     "避坑清单钩", "权威标杆钩", "情感共鸣钩", "向往感钩"]:
+            assert any(hook in v for v in WritingService.VIDEO_SCRIPT_HOOKS.values())
+        assert len(WritingService.VIDEO_SCRIPT_STRUCTURES) == 9
+        for struct in ["段子+反转", "总分总", "故事+情感共鸣", "每5秒一个兴趣点",
+                       "第一人称+过程记录", "问题+反常识+三步拆解", "立目标+过程记录+结果呈现",
+                       "观点+反驳+我的看法", "故事+感悟+行动建议"]:
+            assert any(struct in v for v in WritingService.VIDEO_SCRIPT_STRUCTURES.values())
+
+        prompt = self._render(video_type="猎奇型", style="教知识")
+        assert "悬念/反常识钩" in prompt
+        assert "问题+反常识+三步拆解" in prompt
+        assert "利益点钩" not in prompt  # 未选类型不注入
+        assert "讲故事" not in prompt    # 未选风格不注入
+
+    @pytest.mark.asyncio
+    async def test_generate_video_script_uses_system_prompt_and_dynamic_assembly(self, db_session):
+        """分层提示词：规则/格式在 system，用户消息只注入所选类型/风格（A+B）"""
+        fake = _FakeChatService()
+        ai_model = Mock()
+        ai_model.provider = "openai"
+        ai_model.api_key = "test-key"
+        ai_model.model_name = "gpt-4"
+        ai_model.base_url = None
+        ai_model.id = 1
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            await WritingService.generate_content(
+                db=db_session,
+                tool_type="video_script",
+                user_input={
+                    "topic": "测试主题",
+                    "duration": "30秒",
+                    "platform": "抖音",
+                    "video_type": "猎奇型",
+                    "style": "教知识",
+                    "additional_description": "口播要口语化",
+                },
+                ai_model=ai_model,
+            )
+
+        system_prompt = fake.captured["system_prompt"]
+        user_prompt = fake.captured["message"]
+
+        assert system_prompt is not None
+        assert "短视频脚本创作专家" in system_prompt
+        for section in self.SECTIONS:
+            assert section in system_prompt
+
+        # 用户消息只包含所选类型/风格/时长策略
+        assert "猎奇型" in user_prompt and "悬念/反常识钩" in user_prompt
+        assert "教知识" in user_prompt and "问题+反常识+三步拆解" in user_prompt
+        assert "目标镜头数 5-8镜" in user_prompt
+        for other in ["成本型", "人群型", "反差型", "晒过程", "聊观点", "讲故事"]:
+            assert other not in user_prompt
+
+        # 补充说明仍在用户消息末尾，且无最高优先级措辞
+        assert "口播要口语化" in user_prompt
+        assert "最高优先级" not in user_prompt
+
+    def test_defaults_include_video_type(self):
+        """默认值：video_type=人群型，style 保持轻松搞笑"""
+        defaults = WritingService.TOOL_DEFAULTS["video_script"]
+        assert defaults["video_type"] == "人群型"
+        assert defaults["style"] == "轻松搞笑"
 
 
 class TestToolTypeAliasAndCreationType:

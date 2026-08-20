@@ -201,8 +201,7 @@ async def generate_content(
 ) -> Any:
     """
     生成AI写作内容
-    支持两种模式：
-    1. API Key模式：提供model_id，系统使用配置的API Key
+    使用API Key模式：提供model_id，系统使用用户配置的AI模型与API Key
     """
     # 检查并扣减积分（会员不扣积分）
     credits_required = 10  # 每次生成需要10积分
@@ -221,66 +220,54 @@ async def generate_content(
         )
     
     try:
-        # 判断使用哪种模式
-        if request.platform:
-            # Cookie模式
-            logger.info(f"Using Cookie mode for platform: {request.platform}")
-            content = await WritingService.generate_content_with_cookie(
+        # API Key模式：使用用户配置的AI模型
+        logger.info(f"Using API Key mode with model_id: {request.model_id}")
+
+        # 获取AI模型
+        if not request.model_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请选择AI模型",
+            )
+
+        ai_model = db.query(AIModel).filter(
+            AIModel.id == request.model_id,
+            AIModel.user_id == current_user.id
+        ).first()
+
+        if not ai_model:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="AI模型不存在或无权访问",
+            )
+
+        # 检查是否启用了插件
+        if request.enabled_plugins:
+            # 使用带插件的生成方法
+            logger.info(f"Using plugins: {request.enabled_plugins}")
+            result = await WritingService.generate_content_with_plugins(
                 db=db,
-                user_id=current_user.id,
                 tool_type=request.tool_type,
                 user_input=request.parameters or {},
-                platform=request.platform,
+                ai_model=ai_model,
+                enabled_plugins=request.enabled_plugins,
+                user_id=current_user.id,
             )
+            content = result["content"]
+            # 可以在 extra_data 中保存插件调用信息
+            plugin_info = {
+                "plugin_invocations": result.get("plugin_invocations", []),
+                "usage": result.get("usage", {})
+            }
         else:
-            # API Key模式（原有方式）
-            logger.info(f"Using API Key mode with model_id: {request.model_id}")
-            
-            # 获取AI模型
-            if not request.model_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="请选择AI模型或指定平台",
-                )
-            
-            ai_model = db.query(AIModel).filter(
-                AIModel.id == request.model_id,
-                AIModel.user_id == current_user.id
-            ).first()
-            
-            if not ai_model:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="AI模型不存在或无权访问",
-                )
-            
-            # 检查是否启用了插件
-            if request.enabled_plugins:
-                # 使用带插件的生成方法
-                logger.info(f"Using plugins: {request.enabled_plugins}")
-                result = await WritingService.generate_content_with_plugins(
-                    db=db,
-                    tool_type=request.tool_type,
-                    user_input=request.parameters or {},
-                    ai_model=ai_model,
-                    enabled_plugins=request.enabled_plugins,
-                    user_id=current_user.id,
-                )
-                content = result["content"]
-                # 可以在 extra_data 中保存插件调用信息
-                plugin_info = {
-                    "plugin_invocations": result.get("plugin_invocations", []),
-                    "usage": result.get("usage", {})
-                }
-            else:
-                # 普通生成
-                content = await WritingService.generate_content(
-                    db=db,
-                    tool_type=request.tool_type,
-                    user_input=request.parameters or {},
-                    ai_model=ai_model,
-                )
-                plugin_info = None
+            # 普通生成
+            content = await WritingService.generate_content(
+                db=db,
+                tool_type=request.tool_type,
+                user_input=request.parameters or {},
+                ai_model=ai_model,
+            )
+            plugin_info = None
         
         # 创建创作记录
         extra_data = {}
@@ -295,7 +282,7 @@ async def generate_content(
             tool_type=request.tool_type,
             input_data=request.parameters,
             extra_data=extra_data if extra_data else None,
-            model_id=ai_model.id if not request.platform else None,
+            model_id=ai_model.id,
             status="completed",
         )
         db.add(creation)
