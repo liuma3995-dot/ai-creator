@@ -134,6 +134,72 @@ class TestWritingAPI:
 
         refreshed = db_session.query(User).filter(User.id == test_user.id).first()
         assert refreshed.credits == 90
+
+    @patch('app.services.writing_service.WritingService.generate_content')
+    def test_generate_video_script_passes_preset_content(self, mock_generate, client, auth_headers, db_session, test_user):
+        """短视频脚本生成：preset_content 正确透传到生成服务"""
+        from app.models.user import User
+
+        test_user.credits = 100
+        db_session.commit()
+        model = self._make_model(db_session, test_user)
+        mock_generate.return_value = "脚本内容"
+
+        response = client.post(
+            "/api/v1/writing/generate",
+            headers=auth_headers,
+            json={
+                "tool_type": "video_script",
+                "model_id": model.id,
+                "parameters": {
+                    "topic": "测试主题",
+                    "preset_content": "客户前采资料：母婴用品品牌，主打宝宝辅食机，目标人群90后妈妈",
+                },
+            },
+        )
+        assert response.status_code == 200
+        user_input = mock_generate.call_args.kwargs["user_input"]
+        assert "客户前采资料" in user_input["preset_content"]
+
+    @patch('app.services.writing_service.WritingService.generate_content')
+    def test_generate_video_script_preset_too_long_returns_400(self, mock_generate, client, auth_headers, db_session, test_user):
+        """预设内容超长：服务层抛 ValueError，接口返回 400 而非 500"""
+        test_user.credits = 100
+        db_session.commit()
+        model = self._make_model(db_session, test_user)
+        mock_generate.side_effect = ValueError("预设内容过长，最多支持 5000 字")
+
+        response = client.post(
+            "/api/v1/writing/generate",
+            headers=auth_headers,
+            json={
+                "tool_type": "video_script",
+                "model_id": model.id,
+                "parameters": {"topic": "测试主题", "preset_content": "字" * 5001},
+            },
+        )
+        assert response.status_code == 400
+        assert "预设内容过长" in response.json()["message"]
+
+    @patch('app.services.writing_service.WritingService.generate_content')
+    def test_generate_video_script_missing_preset_returns_400(self, mock_generate, client, auth_headers, db_session, test_user):
+        """预设内容缺失：服务层抛 ValueError，接口返回 400"""
+        test_user.credits = 100
+        db_session.commit()
+        model = self._make_model(db_session, test_user)
+        mock_generate.side_effect = ValueError("请填写预设内容（客户基础信息与拍摄方向），作为脚本的事实基础")
+
+        response = client.post(
+            "/api/v1/writing/generate",
+            headers=auth_headers,
+            json={
+                "tool_type": "video_script",
+                "model_id": model.id,
+                "parameters": {"topic": "测试主题"},
+            },
+        )
+        assert response.status_code == 400
+        assert "请填写预设内容" in response.json()["message"]
     
     @patch('app.services.writing_service.WritingService.generate_content')
     def test_generate_content_invalid_tool_type(self, mock_generate, client, auth_headers, db_session, test_user):

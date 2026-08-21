@@ -5,14 +5,38 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PY="$ROOT/backend/venv/Scripts/python.exe"
 
+# 本脚本内 curl 一律直连本地地址，避免被系统代理/节点劫持
+export NO_PROXY="localhost,127.0.0.1"
+export no_proxy="localhost,127.0.0.1"
+
 echo "=========================================================="
 echo "  ai-creator 本地开发一键启动"
 echo "=========================================================="
 echo ""
 
-# 前置检查：MySQL / Memurai 服务
+# 前置检查：MySQL 服务
 sc query MySQL80 | grep -q RUNNING || { echo "[错误] MySQL 服务未运行"; exit 1; }
-sc query Memurai | grep -q RUNNING || { echo "[错误] Memurai(Redis) 服务未运行"; exit 1; }
+
+# Redis (Memurai) 检查：以 6379 端口为准（手动启动的 memurai 进程也算），
+# 未监听时尝试自动拉起：先试服务，服务不可用则直接启动 memurai.exe。
+redis_ready() { netstat -ano | grep ':6379 ' | grep -q LISTENING; }
+
+if ! redis_ready; then
+  echo "[INFO] Redis(Memurai) 未监听 6379，尝试启动 ..."
+  sc start Memurai >/dev/null 2>&1 || true
+  sleep 1
+  if ! redis_ready && [ -f "/c/Program Files/Memurai/memurai.exe" ]; then
+    echo "[INFO] Memurai 服务不可用，直接启动 memurai.exe ..."
+    "/c/Program Files/Memurai/memurai.exe" "/c/Program Files/Memurai/memurai.conf" >/tmp/memurai.log 2>&1 &
+    sleep 2
+  fi
+  if ! redis_ready; then
+    echo "[错误] Redis(Memurai) 未监听 6379，请手动启动 Memurai 服务后重试"
+    exit 1
+  fi
+fi
+echo "[OK] Redis listening on port 6379"
+echo ""
 
 # 依赖检查
 [ -f "$PY" ] || { echo "[错误] 未找到后端虚拟环境: $PY"; exit 1; }
@@ -22,7 +46,7 @@ sc query Memurai | grep -q RUNNING || { echo "[错误] Memurai(Redis) 服务未�
 # 严格健康检查：后端必须返回 HTTP 200（/health）
 # 端口被占用但进程已损坏/旧版本时，杀掉后重新启动
 backend_http() {
-  curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:8000/health
+  curl --noproxy '*' -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:8000/health
 }
 
 if [ "$(backend_http)" = "200" ]; then
@@ -54,7 +78,7 @@ echo ""
 
 # 前端健康检查
 front_http() {
-  curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:5173/
+  curl --noproxy '*' -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:5173/
 }
 
 if [ "$(front_http)" = "200" ]; then
@@ -85,7 +109,7 @@ echo ""
 
 # PPTist 健康检查（5174）
 pptist_http() {
-  curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:5174/
+  curl --noproxy '*' -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:5174/
 }
 
 if [ "$(pptist_http)" = "200" ]; then
@@ -118,13 +142,13 @@ echo "=========================================================="
 echo "  服务状态"
 echo "=========================================================="
 printf "  - 前端 Vite      http://localhost:5173          HTTP %s\n" \
-  "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/)"
+  "$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" http://localhost:5173/)"
 printf "  - 后端 API       http://localhost:8000          HTTP %s\n" \
-  "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/docs)"
+  "$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" http://localhost:8000/docs)"
 printf "  - Swagger        http://localhost:8000/docs     HTTP %s\n" \
-  "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/docs)"
+  "$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" http://localhost:8000/docs)"
 printf "  - PPTist Editor  http://localhost:5174          HTTP %s\n" \
-  "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5174/)"
+  "$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" http://localhost:5174/)"
 
 echo ""
 echo "=========================================================="
@@ -161,6 +185,6 @@ else
 fi
 echo "  [tips] 上方三个服务确认 HTTP 200 后再打开浏览器"
 echo "  [tips] 如果页面仍提示“服务器内部错误”，说明后端窗口可能已崩溃，请检查 /tmp/uvicorn.log 后重新运行本脚本"
-echo "  [tips] MySQL/Memurai 是 Windows 服务，无需手动启动"
+echo "  [tips] Redis 未监听 6379 时脚本会自动拉起（先服务，后 memurai.exe）"
 echo "  [tips] 手机调试：手机与电脑需在同一 Wi-Fi；若无法访问，请在 Windows 防火墙放行 5173/8000/5174 入站端口"
 echo ""

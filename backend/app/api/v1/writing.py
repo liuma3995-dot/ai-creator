@@ -303,6 +303,21 @@ async def generate_content(
                 description="AI写作失败退款"
             )
         raise
+    except ValueError as e:
+        # 参数校验失败（如预设内容超长）：退还已扣积分并返回 400
+        if not current_user.is_member:
+            db.rollback()
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="AI写作失败退款"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     except Exception as e:
         logger.error(f"Content generation failed: {e}", exc_info=True)
         # 生成失败，退还积分
@@ -552,6 +567,21 @@ async def regenerate_content(
                 description="AI写作失败退款"
             )
         raise
+    except ValueError as e:
+        # 参数校验失败（如预设内容超长）：退还已扣积分并返回 400
+        if not current_user.is_member:
+            db.rollback()
+            CreditService.add_credits(
+                db=db,
+                user_id=current_user.id,
+                amount=credits_required,
+                transaction_type=TransactionType.REFUND,
+                description="AI写作失败退款"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     except Exception as e:
         # 生成失败，退还积分
         if not current_user.is_member:

@@ -145,8 +145,7 @@ class WritingService:
         
         "video_script": """请根据以下信息创作短视频脚本：
 
-视频主题：{topic}
-视频时长：{duration}
+{topic_section}{preset_section}视频时长：{duration}
 目标平台：{platform}
 视频类型：{video_type}
 视频风格：{style}
@@ -349,8 +348,12 @@ class WritingService:
         "video_script": {
             "duration": "1分钟",
             "platform": "抖音",
+            "preset_content": "",
+            "preset_section": "",
             "style": "轻松搞笑",
-            "video_type": "人群型",
+            "topic": "",
+            "topic_section": "",
+            "video_type": "",
         },
         "story_novel": {
             "genre": "现代都市",
@@ -396,22 +399,37 @@ class WritingService:
         },
     }
 
+    # 短视频脚本：预设内容（客户前采素材）最大长度（字符数）
+    MAX_PRESET_CONTENT_LENGTH = 5000
+
     # 短视频脚本：分层系统提示词（角色+通用规则+输出格式，固定不变）
     TOOL_SYSTEM_PROMPTS = {
         "video_script": """你是一位短视频脚本创作专家。请遵循以下规则创作短视频脚本：
 
 【通用创作规则】
-1. 开头3秒必须使用用户消息中给出的视频类型钩子策略抓住注意力
+1. 开头3秒必须抓住注意力；若用户消息中给出了视频类型钩子策略则严格遵循，未给出则由你根据内容与所选风格自由设计最有吸引力的开场钩子
 2. 按用户消息中给出的视频风格组织节奏与表达方式
 3. 节奏紧凑，每5秒设置一个兴趣点
 4. 适合竖屏观看（9:16），前3秒要有大字幕
 5. 结尾有互动引导（点赞/评论/关注/收藏/转发）
 6. 分镜镜头数必须符合用户消息中给出的目标镜头数；单镜最长不超过3秒，快节奏段不超过1秒
 
+【预设内容】
+1. 用户消息中的【预设内容/素材方向】是最高优先级的事实基础：选题、台词、画面必须围绕其展开，不得脱离该范围
+2. 视频主题（如有）仅作辅助参考；当主题与预设内容不一致时，以预设内容为准
+3. 从预设内容中提炼与本次拍摄最相关的信息，避免全量堆砌细节
+4. 绝对禁止在输出的任何部分（标题、台词、字幕、分镜表、标签、拍摄要点、备注等）出现预设内容中的电话号码、微信号、邮箱、地址等敏感信息；确需提及时只用"联系方式"这类泛指，不得写出具体号码或账号
+
 【平台适配】
 - 抖音/快手：以15-60秒为主，黄金3秒+前3秒大字幕，强互动引导
 - B站/小红书：以1-3分钟为主，开头钩子可以稍深，完播导向
 - 视频号：社交传播导向，结尾引导转发
+
+【博主风格（表达人格，按用户所选视频风格遵循）】
+- 影视飓风：电影质感、工业化画面描述；问题→讲解→解决；专业但通俗（10岁孩子都能听懂）；节奏紧凑、视觉记忆点强；结尾情绪共鸣
+- 薛辉：脱口秀式口播、极度松弛；先共鸣/抛坑再讲方法论；案例+亲身经历；带梗不端着；互动引导强；金句收尾
+- 何同学：脑洞提问开场；实验/故事推进；可视化表达；年轻化口语；结尾升华意义
+- 房琪Kiki：金句文案开场；唯美画面意境；克制真实表达；情感递进；结尾格局升华
 
 【输出格式】（严格按以下六要素，使用Markdown）
 ## 一、视频标题（2个备选，20字内，含关键词或悬念）
@@ -445,6 +463,10 @@ class WritingService:
         "晒过程": "立目标+过程记录+结果呈现结构，持续制造期待",
         "聊观点": "观点+反驳+我的看法结构，引发评论",
         "讲故事": "故事+感悟+行动建议结构，建立信任",
+        "影视飓风": "电影质感+工业化叙事：问题→讲解→解决，专业但通俗，画面视觉冲击强，节奏紧凑，结尾情绪共鸣",
+        "薛辉": "脱口秀式讲课：先共鸣/抛坑→案例+方法论→金句收尾，松弛口语、带梗、强互动",
+        "何同学": "脑洞实验叙事：脑洞提问开场→实验/故事推进→可视化表达→意义升华结尾",
+        "房琪Kiki": "治愈文案叙事：金句开场→唯美画面→克制真实表达→情感递进→格局升华结尾",
     }
 
     # 短视频脚本：时长 -> 目标镜头数（动态注入所选时长）
@@ -494,15 +516,32 @@ class WritingService:
         # 系统提示词承载角色/规则/输出格式；用户消息只注入所选类型/风格/时长的策略
         system_prompt = None
         if tool_type == "video_script":
+            video_type_label = (merged_input.get("video_type") or "").strip() or "自由创作"
             merged_input["hook_strategy"] = cls.VIDEO_SCRIPT_HOOKS.get(
-                merged_input.get("video_type"), "结合主题设计有力钩子"
+                merged_input.get("video_type"),
+                "根据内容与所选风格自由设计最有吸引力的开场钩子",
             )
+            merged_input["video_type"] = video_type_label
             merged_input["structure"] = cls.VIDEO_SCRIPT_STRUCTURES.get(
                 merged_input.get("style"), "结构清晰、节奏紧凑"
             )
             merged_input["shot_guide"] = cls.VIDEO_SCRIPT_SHOT_GUIDE.get(
                 merged_input.get("duration"), "按平台惯例"
             )
+            preset_content = (merged_input.get("preset_content") or "").strip()
+            if not preset_content:
+                raise ValueError(
+                    "请填写预设内容（客户基础信息与拍摄方向），作为脚本的事实基础"
+                )
+            if len(preset_content) > cls.MAX_PRESET_CONTENT_LENGTH:
+                raise ValueError(
+                    f"预设内容过长，最多支持 {cls.MAX_PRESET_CONTENT_LENGTH} 字"
+                )
+            merged_input["preset_section"] = (
+                f"【预设内容/素材方向】\n{preset_content}\n" if preset_content else ""
+            )
+            topic = (merged_input.get("topic") or "").strip()
+            merged_input["topic_section"] = f"视频主题：{topic}\n" if topic else ""
             system_prompt = cls.TOOL_SYSTEM_PROMPTS.get("video_script")
         
         # 填充提示词

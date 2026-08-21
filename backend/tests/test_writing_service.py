@@ -291,6 +291,7 @@ class TestVideoScriptTemplate:
     STYLES = [
         "轻松搞笑", "专业讲解", "情感故事", "快节奏剪辑", "Vlog风格",
         "教知识", "晒过程", "聊观点", "讲故事",
+        "影视飓风", "薛辉", "何同学", "房琪Kiki",
     ]
     SECTIONS = [
         "## 一、视频标题", "## 二、黄金3秒开头", "## 三、分镜表",
@@ -301,13 +302,24 @@ class TestVideoScriptTemplate:
         template = WritingService.TOOL_PROMPTS["video_script"]
         defaults = WritingService.TOOL_DEFAULTS.get("video_script", {})
         merged = {**defaults, "topic": "测试主题", **overrides}
-        merged["hook_strategy"] = WritingService.VIDEO_SCRIPT_HOOKS.get(merged.get("video_type"), "")
+        video_type_label = (merged.get("video_type") or "").strip() or "自由创作"
+        merged["hook_strategy"] = WritingService.VIDEO_SCRIPT_HOOKS.get(
+            merged.get("video_type"),
+            "根据内容与所选风格自由设计最有吸引力的开场钩子",
+        )
+        merged["video_type"] = video_type_label
         merged["structure"] = WritingService.VIDEO_SCRIPT_STRUCTURES.get(merged.get("style"), "")
         merged["shot_guide"] = WritingService.VIDEO_SCRIPT_SHOT_GUIDE.get(merged.get("duration"), "")
+        preset_content = (merged.get("preset_content") or "").strip()
+        merged["preset_section"] = (
+            f"【预设内容/素材方向】\n{preset_content}\n" if preset_content else ""
+        )
+        topic = (merged.get("topic") or "").strip()
+        merged["topic_section"] = f"视频主题：{topic}\n" if topic else ""
         return template.format(**merged)
 
     def test_template_fills_all_video_types_and_styles(self):
-        """8 种视频类型 × 9 种风格全部可正常填充模板"""
+        """8 种视频类型 × 13 种风格全部可正常填充模板"""
         for vtype in self.VIDEO_TYPES:
             for style in self.STYLES:
                 prompt = self._render(video_type=vtype, style=style)
@@ -331,15 +343,17 @@ class TestVideoScriptTemplate:
         assert "目标镜头数 10-15镜" in self._render(duration="1分钟")
 
     def test_prompt_contains_hook_and_structure_guides(self):
-        """钩子与结构字典覆盖 8 类型 × 9 风格；用户消息只注入所选内容（B）"""
+        """钩子与结构字典覆盖 8 类型 × 13 风格；用户消息只注入所选内容（B）"""
         assert len(WritingService.VIDEO_SCRIPT_HOOKS) == 8
         for hook in ["利益点钩", "身份认同钩", "悬念/反常识钩", "冲突反转钩",
                      "避坑清单钩", "权威标杆钩", "情感共鸣钩", "向往感钩"]:
             assert any(hook in v for v in WritingService.VIDEO_SCRIPT_HOOKS.values())
-        assert len(WritingService.VIDEO_SCRIPT_STRUCTURES) == 9
+        assert len(WritingService.VIDEO_SCRIPT_STRUCTURES) == 13
         for struct in ["段子+反转", "总分总", "故事+情感共鸣", "每5秒一个兴趣点",
                        "第一人称+过程记录", "问题+反常识+三步拆解", "立目标+过程记录+结果呈现",
                        "观点+反驳+我的看法", "故事+感悟+行动建议"]:
+            assert any(struct in v for v in WritingService.VIDEO_SCRIPT_STRUCTURES.values())
+        for struct in ["电影质感", "脱口秀式讲课", "脑洞实验叙事", "治愈文案叙事"]:
             assert any(struct in v for v in WritingService.VIDEO_SCRIPT_STRUCTURES.values())
 
         prompt = self._render(video_type="猎奇型", style="教知识")
@@ -368,6 +382,7 @@ class TestVideoScriptTemplate:
                     "platform": "抖音",
                     "video_type": "猎奇型",
                     "style": "教知识",
+                    "preset_content": "客户是做母婴用品的，想拍辅食机避坑视频",
                     "additional_description": "口播要口语化",
                 },
                 ai_model=ai_model,
@@ -392,11 +407,131 @@ class TestVideoScriptTemplate:
         assert "口播要口语化" in user_prompt
         assert "最高优先级" not in user_prompt
 
+    def test_topic_optional(self):
+        """视频主题可选：缺省时不出现主题行，主题仍位于预设内容之前"""
+        prompt_no_topic = self._render(topic="", preset_content="客户前采素材")
+        assert "视频主题：" not in prompt_no_topic
+        prompt_with_topic = self._render(topic="辅食机避坑", preset_content="客户前采素材")
+        assert prompt_with_topic.index("视频主题：辅食机避坑") < prompt_with_topic.index("【预设内容/素材方向】")
+
+    @pytest.mark.asyncio
+    async def test_generate_missing_preset_raises(self, db_session):
+        """预设内容为必填：缺失时抛出 ValueError，且不调用模型"""
+        fake = _FakeChatService()
+        ai_model = Mock()
+        ai_model.provider = "openai"
+        ai_model.api_key = "test-key"
+        ai_model.model_name = "gpt-4"
+        ai_model.base_url = None
+        ai_model.id = 1
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            with pytest.raises(ValueError, match="请填写预设内容"):
+                await WritingService.generate_content(
+                    db=db_session,
+                    tool_type="video_script",
+                    user_input={"topic": "测试主题"},
+                    ai_model=ai_model,
+                )
+        assert "message" not in fake.captured
+
+    def test_system_prompt_contains_priority_and_blogger_rules(self):
+        """system 提示词：预设内容为最高优先级，包含 4 种博主风格规则"""
+        system_prompt = WritingService.TOOL_SYSTEM_PROMPTS["video_script"]
+        assert "最高优先级" in system_prompt
+        assert "以预设内容为准" in system_prompt
+        for blogger in ["影视飓风", "薛辉", "何同学", "房琪Kiki"]:
+            assert blogger in system_prompt
+
     def test_defaults_include_video_type(self):
-        """默认值：video_type=人群型，style 保持轻松搞笑"""
+        """默认值：video_type 为空（选填），style 保持轻松搞笑"""
         defaults = WritingService.TOOL_DEFAULTS["video_script"]
-        assert defaults["video_type"] == "人群型"
+        assert defaults["video_type"] == ""
         assert defaults["style"] == "轻松搞笑"
+
+    def test_video_type_optional(self):
+        """视频类型可选：缺省时注入自由创作钩子，选择时注入对应钩子策略"""
+        prompt_free = self._render(video_type="")
+        assert "自由创作" in prompt_free
+        assert "自由设计最有吸引力的开场钩子" in prompt_free
+        assert "利益点钩" not in prompt_free
+        prompt_hooked = self._render(video_type="猎奇型")
+        assert "猎奇型" in prompt_hooked
+        assert "悬念/反常识钩" in prompt_hooked
+
+    def test_preset_section_injected_when_provided(self):
+        """提供预设内容时，在主题之后注入【预设内容/素材方向】段"""
+        preset = "客户是做母婴用品的，目标人群是90后妈妈，想拍一条介绍婴儿辅食机的视频，主打省时省力"
+        prompt = self._render(preset_content=preset)
+        assert "【预设内容/素材方向】" in prompt
+        assert preset in prompt
+        assert prompt.index("视频主题：测试主题") < prompt.index("【预设内容/素材方向】")
+        assert prompt.index("【预设内容/素材方向】") < prompt.index("视频时长：")
+
+    def test_preset_section_omitted_when_empty(self):
+        """未提供预设内容时不注入该段，主题后直接是视频时长"""
+        prompt = self._render()
+        assert "【预设内容/素材方向】" not in prompt
+        assert prompt.index("视频主题：测试主题") < prompt.index("视频时长：")
+
+    def test_system_prompt_contains_preset_rules(self):
+        """system 提示词包含预设内容规则：事实基础、提炼、隐私"""
+        system_prompt = WritingService.TOOL_SYSTEM_PROMPTS["video_script"]
+        assert "事实基础" in system_prompt
+        assert "提炼" in system_prompt
+        assert "敏感信息" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_generate_preset_content_too_long_raises(self, db_session):
+        """预设内容超过 5000 字时抛出 ValueError，且不调用模型"""
+        assert WritingService.MAX_PRESET_CONTENT_LENGTH == 5000
+        fake = _FakeChatService()
+        ai_model = Mock()
+        ai_model.provider = "openai"
+        ai_model.api_key = "test-key"
+        ai_model.model_name = "gpt-4"
+        ai_model.base_url = None
+        ai_model.id = 1
+        too_long = "字" * (WritingService.MAX_PRESET_CONTENT_LENGTH + 1)
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            with pytest.raises(ValueError, match="预设内容过长"):
+                await WritingService.generate_content(
+                    db=db_session,
+                    tool_type="video_script",
+                    user_input={"topic": "测试主题", "preset_content": too_long},
+                    ai_model=ai_model,
+                )
+        assert "message" not in fake.captured
+
+    @pytest.mark.asyncio
+    async def test_generate_video_script_injects_preset_content(self, db_session):
+        """generate_content 全链路：预设内容注入用户消息，系统提示词含隐私约束"""
+        fake = _FakeChatService()
+        ai_model = Mock()
+        ai_model.provider = "openai"
+        ai_model.api_key = "test-key"
+        ai_model.model_name = "gpt-4"
+        ai_model.base_url = None
+        ai_model.id = 1
+        preset = "客户是餐饮连锁品牌，主打健康轻食，想拍一条介绍新品沙拉的视频，联系电话 13800138000"
+        with patch.object(WritingService, "get_langchain_service", return_value=fake):
+            await WritingService.generate_content(
+                db=db_session,
+                tool_type="video_script",
+                user_input={
+                    "topic": "轻食沙拉推荐",
+                    "duration": "30秒",
+                    "platform": "抖音",
+                    "video_type": "人群型",
+                    "style": "教知识",
+                    "preset_content": preset,
+                },
+                ai_model=ai_model,
+            )
+        user_prompt = fake.captured["message"]
+        system_prompt = fake.captured["system_prompt"]
+        assert "【预设内容/素材方向】" in user_prompt
+        assert preset in user_prompt
+        assert "敏感信息" in system_prompt
 
 
 class TestToolTypeAliasAndCreationType:

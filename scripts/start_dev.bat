@@ -12,17 +12,40 @@ echo   ai-creator local dev launcher
 echo ==========================================================
 echo.
 
-REM Pre-checks: MySQL and Memurai services
+REM Pre-checks: MySQL service
 sc query MySQL80 | find "RUNNING" >nul || (
     echo [ERROR] MySQL service MySQL80 is not running.
     if /i not "%1"=="nopause" pause
     exit /b 1
 )
-sc query Memurai | find "RUNNING" >nul || (
-    echo [ERROR] Memurai Redis service is not running.
-    if /i not "%1"=="nopause" pause
-    exit /b 1
+
+REM Redis (Memurai): check port 6379 instead of service state, so a manually
+REM started memurai process also passes; auto-start when it is down.
+set "REDIS_READY="
+for /f %%p in ('netstat -ano ^| findstr /C:":6379 " ^| findstr "LISTENING"') do set "REDIS_READY=1"
+if not defined REDIS_READY (
+    echo [INFO] Redis/Memurai not listening on 6379, trying to start it...
+    sc start Memurai >nul 2>&1
+    ping -n 3 127.0.0.1 >nul
+    set "REDIS_READY="
+    for /f %%p in ('netstat -ano ^| findstr /C:":6379 " ^| findstr "LISTENING"') do set "REDIS_READY=1"
+    if not defined REDIS_READY (
+        if exist "C:\Program Files\Memurai\memurai.exe" (
+            echo [INFO] Memurai service unavailable, launching memurai.exe directly...
+            start "ai-creator-memurai" /min "C:\Program Files\Memurai\memurai.exe" "C:\Program Files\Memurai\memurai.conf"
+            ping -n 4 127.0.0.1 >nul
+            set "REDIS_READY="
+            for /f %%p in ('netstat -ano ^| findstr /C:":6379 " ^| findstr "LISTENING"') do set "REDIS_READY=1"
+        )
+    )
+    if not defined REDIS_READY (
+        echo [ERROR] Redis/Memurai is not listening on port 6379.
+        echo         Start the Memurai service or run memurai.exe manually, then rerun.
+        if /i not "%1"=="nopause" pause
+        exit /b 1
+    )
 )
+echo [OK] Redis listening on port 6379.
 
 REM Dependency checks
 if not exist "%PY%" (
@@ -46,7 +69,7 @@ REM Step 1: Backend - strict health check (HTTP 200 on /health).
 REM A stale or broken process on port 8000 is killed and restarted.
 REM ------------------------------------------------------------------
 set "AIC_BACK_HTTP="
-for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:8000/health') do set "AIC_BACK_HTTP=%%c"
+for /f %%c in ('curl --noproxy "*" -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:8000/health') do set "AIC_BACK_HTTP=%%c"
 if "%AIC_BACK_HTTP%"=="200" (
     echo [1/3] Backend already healthy on port 8000.
 ) else (
@@ -63,7 +86,7 @@ echo [wait] Waiting for backend API on port 8000 ...
 set "AIC_BACK_WAIT=0"
 :wait_backend
 set "AIC_BACK_HTTP="
-for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:8000/health') do set "AIC_BACK_HTTP=%%c"
+for /f %%c in ('curl --noproxy "*" -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:8000/health') do set "AIC_BACK_HTTP=%%c"
 if "%AIC_BACK_HTTP%"=="200" goto backend_ready
 set /a AIC_BACK_WAIT+=1
 if %AIC_BACK_WAIT% geq 30 (
@@ -83,7 +106,7 @@ REM ------------------------------------------------------------------
 REM Step 2: Frontend - strict health check (HTTP 200 on the root page).
 REM ------------------------------------------------------------------
 set "AIC_FRONT_HTTP="
-for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:5173/') do set "AIC_FRONT_HTTP=%%c"
+for /f %%c in ('curl --noproxy "*" -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:5173/') do set "AIC_FRONT_HTTP=%%c"
 if "%AIC_FRONT_HTTP%"=="200" (
     echo [2/3] Frontend already responding on port 5173.
 ) else (
@@ -97,7 +120,7 @@ echo [wait] Waiting for frontend Vite on port 5173 ...
 set "AIC_FRONT_WAIT=0"
 :wait_front
 set "AIC_FRONT_HTTP="
-for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:5173/') do set "AIC_FRONT_HTTP=%%c"
+for /f %%c in ('curl --noproxy "*" -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:5173/') do set "AIC_FRONT_HTTP=%%c"
 if "%AIC_FRONT_HTTP%"=="200" goto front_ready
 set /a AIC_FRONT_WAIT+=1
 if %AIC_FRONT_WAIT% geq 15 (
@@ -116,7 +139,7 @@ REM ------------------------------------------------------------------
 REM Step 3: PPTist editor - strict health check (HTTP 200 on root page).
 REM ------------------------------------------------------------------
 set "AIC_PPTIST_HTTP="
-for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:5174/') do set "AIC_PPTIST_HTTP=%%c"
+for /f %%c in ('curl --noproxy "*" -s -o nul -w "%%{http_code}" --max-time 3 http://localhost:5174/') do set "AIC_PPTIST_HTTP=%%c"
 if "%AIC_PPTIST_HTTP%"=="200" (
     echo [3/3] PPTist already responding on port 5174.
 ) else (
@@ -130,7 +153,7 @@ echo [wait] Waiting for PPTist on port 5174 ...
 set "AIC_PPTIST_WAIT=0"
 :wait_pptist
 set "AIC_PPTIST_HTTP="
-for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:5174/') do set "AIC_PPTIST_HTTP=%%c"
+for /f %%c in ('curl --noproxy "*" -s -o nul -w "%%{http_code}" --max-time 2 http://localhost:5174/') do set "AIC_PPTIST_HTTP=%%c"
 if "%AIC_PPTIST_HTTP%"=="200" goto pptist_ready
 set /a AIC_PPTIST_WAIT+=1
 if %AIC_PPTIST_WAIT% geq 30 (
@@ -148,11 +171,11 @@ echo.
 echo ==========================================================
 echo   Service status
 echo ==========================================================
-curl -s -o nul -w "  - Frontend Vite   http://localhost:5173          HTTP %%{http_code}\n" http://localhost:5173/
-curl -s -o nul -w "  - Backend API     http://localhost:8000          HTTP %%{http_code}\n" http://localhost:8000/docs
-curl -s -o nul -w "  - Swagger         http://localhost:8000/docs     HTTP %%{http_code}\n" http://localhost:8000/docs
-curl -s -o nul -w "  - OpenAPI         http://localhost:8000/openapi.json  HTTP %%{http_code}\n" http://localhost:8000/openapi.json
-curl -s -o nul -w "  - PPTist Editor   http://localhost:5174          HTTP %%{http_code}\n" http://localhost:5174/
+curl --noproxy "*" -s -o nul -w "  - Frontend Vite   http://localhost:5173          HTTP %%{http_code}\n" http://localhost:5173/
+curl --noproxy "*" -s -o nul -w "  - Backend API     http://localhost:8000          HTTP %%{http_code}\n" http://localhost:8000/docs
+curl --noproxy "*" -s -o nul -w "  - Swagger         http://localhost:8000/docs     HTTP %%{http_code}\n" http://localhost:8000/docs
+curl --noproxy "*" -s -o nul -w "  - OpenAPI         http://localhost:8000/openapi.json  HTTP %%{http_code}\n" http://localhost:8000/openapi.json
+curl --noproxy "*" -s -o nul -w "  - PPTist Editor   http://localhost:5174          HTTP %%{http_code}\n" http://localhost:5174/
 
 echo.
 echo ==========================================================
@@ -187,7 +210,7 @@ echo   [tips] Three CMD windows opened for backend, frontend and PPTist live log
 echo   [tips] Close a window to stop that service.
 echo   [tips] If the page still shows "server internal error", the backend
 echo          window may have crashed - check it, then rerun this script.
-echo   [tips] MySQL and Memurai run as Windows services, no manual start needed.
+echo   [tips] Redis is auto-started when port 6379 is down (service first, then memurai.exe).
 echo   [tips] Mobile: phone and PC must be on the same Wi-Fi; if blocked, allow ports 5173/8000 in Windows Firewall (inbound).
 echo.
 if /i not "%1"=="nopause" pause
