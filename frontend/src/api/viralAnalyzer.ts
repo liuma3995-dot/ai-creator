@@ -63,6 +63,9 @@ export interface AnalyzeResponse {
   
   // 改进建议
   improvement_suggestions: string[] // 可改进的点
+
+  // 创作记录ID
+  creation_id?: number           // 创作记录ID
 }
 
 // 爆款模仿请求

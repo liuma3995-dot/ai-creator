@@ -7,8 +7,8 @@
         <div class="logo" @click="router.push('/')">
           <img src="/logo.svg" alt="Logo" />
           <div class="logo-copy">
-            <span class="logo-text">AI创作者</span>
-            <span class="logo-subtitle">一体化创作工作台</span>
+            <span class="logo-text">有梦</span>
+            <span class="logo-subtitle">让每一个灵感，长成作品</span>
           </div>
         </div>
 
@@ -150,7 +150,7 @@
         <div class="drawer-header">
           <div class="logo" @click="router.push('/'); showMobileMenu = false">
             <img src="/logo.svg" alt="Logo" />
-            <span>AI创作者</span>
+            <span>有梦</span>
           </div>
         </div>
       </template>

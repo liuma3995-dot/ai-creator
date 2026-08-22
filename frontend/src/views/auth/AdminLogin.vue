@@ -2,7 +2,7 @@
   <div class="admin-login-container">
     <div class="admin-login-card">
       <div class="admin-brand">
-        <div class="brand-icon">AI</div>
+        <img src="/logo-mark.svg" alt="有梦" class="brand-icon" />
         <h2>管理员登录</h2>
         <p>仅限白名单 IP / VPN 内网访问</p>
       </div>
@@ -135,15 +135,10 @@ const handleLogin = async () => {
     width: 52px;
     height: 52px;
     margin: 0 auto 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 16px;
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: #fff;
-    background: linear-gradient(135deg, #2563eb, #0ea5e9);
+    display: block;
+    border-radius: 14px;
+    box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
+    object-fit: contain;
   }
 
   h2 {

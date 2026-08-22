@@ -4,12 +4,12 @@
 
     <div class="welcome-section">
       <div class="welcome-content">
-        <h1>欢迎使用 AI 创作者平台</h1>
+        <h1>欢迎使用有梦 - AI 创作平台</h1>
         <p>从写作到多媒体生成，用一套统一的工作台提升内容创作效率。</p>
         <div class="welcome-benefits">
           <div class="benefit-item">
             <el-icon><Check /></el-icon>
-            <span>12+种 AI 写作工具</span>
+            <span>16 种 AI 写作工具</span>
           </div>
           <div class="benefit-item">
             <el-icon><Check /></el-icon>
